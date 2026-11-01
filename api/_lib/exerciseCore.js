@@ -55,6 +55,14 @@ function whichSection(dish, ctx) {
 
 // ── Уровень 2 ──
 // Ингредиенты-дистракторы: из других блюд того же раздела (правдоподобнее), которых нет в этом блюде.
+// Ингредиент, упомянутый в названии или описании блюда, чужим не считаем (если шеф внёс состав
+// не полностью, «лишним» окажется настоящий ингредиент — это научило бы неправильному).
+// Сравниваем по основе слова: «томат» совпадёт с «томатами».
+function mentioned(dish, name) {
+  const stem = norm(name).split(' ')[0].slice(0, 5)
+  return stem.length >= 4 && norm(`${dish.name} ${dish.description || ''}`).includes(stem)
+}
+
 function foreignIngredients(dish, ctx, n) {
   const mine = allIngredientKeys(dish)
   const pool = (names) => {
@@ -62,7 +70,7 @@ function foreignIngredients(dish, ctx, n) {
     const out = []
     for (const name of names) {
       const k = norm(name)
-      if (!k || mine.has(k) || seen.has(k)) continue
+      if (!k || mine.has(k) || seen.has(k) || mentioned(dish, name)) continue
       seen.add(k)
       out.push(name)
     }

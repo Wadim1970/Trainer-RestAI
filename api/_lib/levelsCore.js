@@ -29,6 +29,7 @@ export function trainableDishes(rows) {
       name: String(r.dish_name).trim(),
       section: r.menu_section || 'Без раздела',
       sectionOrder: r.section_order ?? 9999,
+      description: String(r.description || ''),
       role: roleOf(r),
       productType: r.product_type || 'food',
       ingredients: null, // заполняется подтверждёнными фактами

@@ -174,6 +174,28 @@ test('«Собери блюдо»: верные — только ключевы�
   for (const o of q.options.filter((x) => !q.answer.includes(x.id))) assert.ok(!own.has(norm(o.label)), `${o.label} есть в блюде`)
 })
 
+test('«лишний» и дистракторы не берут ингредиент, упомянутый в названии или описании блюда', () => {
+  const dd = attachIngredients(trainableDishes([
+    row('g1', 'Греческий', 'Салаты', { description: 'С томатами, фетой и маслинами' }),
+    row('g2', 'Оливье', 'Салаты'),
+    row('g3', 'Винегрет', 'Салаты'),
+    row('g4', 'Мимоза', 'Салаты'),
+  ]), [
+    fact('g1', ing('Фета', 'Маслины', 'Огурцы')),
+    fact('g2', ing('Картофель', 'Горошек', 'Томаты', 'Колбаса')), // «Томаты» — чужой по составу, но в описании Греческого есть
+    fact('g3', ing('Свёкла', 'Капуста', 'Лук')), fact('g4', ing('Рис', 'Яйцо', 'Сыр')),
+  ])
+  for (let seed = 1; seed <= 60; seed++) {
+    const c = { dishes: dd, sections: ['Салаты'], settings: S, rng: seeded(seed) }
+    for (const lv of [2]) {
+      const q = buildQuestion({ cardKey: cardKey(lv, 'g1'), dishId: 'g1', level: lv }, c)
+      if (!q || (q.kind !== 'odd_one' && q.kind !== 'build_dish')) continue
+      const foreign = q.options.filter((o) => !(q.kind === 'odd_one' ? !q.answer.includes(o.id) : q.answer.includes(o.id)))
+      for (const o of foreign) assert.notEqual(norm(o.label), 'томаты', `seed ${seed}: ${q.kind}`)
+    }
+  }
+})
+
 test('проверка ответа: множественный и одиночный выбор', () => {
   const multi = { options: [{ id: 'o0' }, { id: 'o1' }, { id: 'o2' }], multi: true, answer: ['o0', 'o1'] }
   assert.deepEqual(gradeQuestion(multi, ['o1', 'o0']).correct, true)

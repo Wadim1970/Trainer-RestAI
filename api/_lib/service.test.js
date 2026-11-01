@@ -132,6 +132,7 @@ test('сессия: вопросы выданы, сохранены на сер�
   assert.ok(s.questions.length >= 5)
   assert.ok(s.questions.every((q) => q.level === 1 && q.answer.length >= 1))
   assert.equal(t.trn_sessions.length, 1)
+  assert.deepEqual(s.scoring.points, { correct_confident: 2, correct_unsure: 1, wrong_confident: -2, wrong_unsure: 0 })
 
   const r = await svc.submitAnswers(member, { sessionId: s.sessionId, answers: correct(s) })
   assert.equal(r.totals.correct, s.questions.length)
