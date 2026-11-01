@@ -32,6 +32,8 @@ export default defineConfig({
         // API не кэшируем как страницы: данные об официанте всегда свежие, а при обрыве связи приложение само покажет «нет сети».
         navigateFallbackDenylist: [/^\/api\//],
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
+        // Шаблоны писем нужны Supabase, а не приложению — в кэш телефона не кладём.
+        globIgnores: ['mail/**'],
       },
     }),
   ],

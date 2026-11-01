@@ -9,6 +9,7 @@ import { buildQuestion, gradeQuestion, scoreAnswers } from './exerciseCore.js'
 import { trainableDishes, attachIngredients, readyByLevel, levelMap } from './levelsCore.js'
 import { composeCards, cardKey, todaySummary } from './composeCore.js'
 import { dayIn, prevDay, nextStreak, visibleStreak, addPoints, totalPoints } from './progressCore.js'
+import { clientIp, tooMany } from './http.js'
 import { generateCode, normalizeCode, formatCode, inviteState, cleanEmail, cleanName, CODE_ALPHABET } from './inviteCore.js'
 
 const S = mergeSettings({})
@@ -314,4 +315,19 @@ test('имя и email', () => {
   assert.equal(cleanEmail(' Ivan@Mail.RU '), 'ivan@mail.ru')
   assert.equal(cleanEmail('ivan@'), null)
   assert.equal(cleanEmail('ivan mail@x.ru'), null)
+})
+
+// ── защита от перебора кода ──
+test('адрес клиента: берём то, что дописал nginx (последний), а не подделанное слева', () => {
+  assert.equal(clientIp({ headers: { 'x-forwarded-for': '6.6.6.6, 1.1.1.1, 203.0.113.7' } }), '203.0.113.7')
+  assert.equal(clientIp({ headers: { 'x-forwarded-for': '203.0.113.7' } }), '203.0.113.7')
+  assert.equal(clientIp({ headers: {}, socket: { remoteAddress: '10.0.0.5' } }), '10.0.0.5')
+})
+
+test('лимит попыток: после порога блокирует, потом окно проходит; адреса независимы', () => {
+  const t0 = 1_000_000
+  for (let i = 1; i <= 5; i++) assert.equal(tooMany('k1', { limit: 5, windowMs: 60_000 }, t0 + i), false)
+  assert.equal(tooMany('k1', { limit: 5, windowMs: 60_000 }, t0 + 10), true)
+  assert.equal(tooMany('k2', { limit: 5, windowMs: 60_000 }, t0 + 10), false)
+  assert.equal(tooMany('k1', { limit: 5, windowMs: 60_000 }, t0 + 70_000), false)
 })
