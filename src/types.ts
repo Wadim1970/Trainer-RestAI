@@ -1,6 +1,6 @@
 // Ответы API тренажёра (api/*.js).
 
-export type Kind = 'menu_grid' | 'which_section' | 'build_dish' | 'odd_one' | 'guess_dish'
+export type Kind = 'menu_grid' | 'which_section' | 'build_dish' | 'odd_one' | 'guess_dish' | 'wine_grape' | 'wine_vintage' | 'guess_wine'
 
 export interface Option { id: string; label: string }
 
@@ -11,7 +11,7 @@ export interface Question {
   level: number
   kind: Kind
   source: 'due' | 'new' | 'practice'
-  subject: { dishName?: string; section?: string; ingredients?: string[] }
+  subject: { dishName?: string; section?: string; ingredients?: string[]; grapes?: string[] }
   options: Option[]
   multi: boolean
   answer: string[]

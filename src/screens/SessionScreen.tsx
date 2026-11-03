@@ -163,9 +163,12 @@ function Run({ session, onFinish, onExit }: {
     : q.kind === 'which_section' ? t('kind_which_section', { dishName: q.subject.dishName || '' })
       : q.kind === 'build_dish' ? t('kind_build_dish', { dishName: q.subject.dishName || '' })
         : q.kind === 'odd_one' ? t('kind_odd_one', { dishName: q.subject.dishName || '' })
-          : t('kind_guess_dish')
+          : q.kind === 'wine_grape' ? t('kind_wine_grape', { dishName: q.subject.dishName || '' })
+            : q.kind === 'wine_vintage' ? t('kind_wine_vintage', { dishName: q.subject.dishName || '' })
+              : q.kind === 'guess_wine' ? t('kind_guess_wine')
+                : t('kind_guess_dish')
   const sub = q.kind === 'menu_grid' ? t('kind_menu_grid_sub', { section: q.subject.section || '' })
-    : q.kind === 'build_dish' ? t('kind_build_dish_sub') : q.kind === 'guess_dish' ? t('kind_guess_dish_sub') : q.multi ? t('mark') : ''
+    : q.kind === 'build_dish' ? t('kind_build_dish_sub') : q.kind === 'guess_dish' ? t('kind_guess_dish_sub') : q.kind === 'guess_wine' ? t('kind_guess_wine_sub') : q.multi ? t('mark') : ''
 
   return (
     <div className="page session">
@@ -186,8 +189,11 @@ function Run({ session, onFinish, onExit }: {
         {q.kind === 'guess_dish' && (
           <div className="chips ing">{(q.subject.ingredients || []).map((x) => <span key={x} className="chip static">{x}</span>)}</div>
         )}
+        {q.kind === 'guess_wine' && (
+          <div className="chips ing">{(q.subject.grapes || []).map((x) => <span key={x} className="chip static">{x}</span>)}</div>
+        )}
 
-        <div className={q.kind === 'menu_grid' ? 'options grid' : q.kind === 'build_dish' ? 'options chips' : 'options'} role={q.multi ? 'group' : 'radiogroup'}>
+        <div className={q.kind === 'menu_grid' ? 'options grid' : q.kind === 'build_dish' || q.kind === 'wine_grape' ? 'options chips' : 'options'} role={q.multi ? 'group' : 'radiogroup'}>
           {q.options.map((o) => {
             const isSel = selected.includes(o.id)
             const right = q.answer.includes(o.id)

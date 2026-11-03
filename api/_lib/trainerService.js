@@ -7,7 +7,7 @@
 import { deps, selectAll, must } from './db.js'
 import { httpError } from './http.js'
 import { mergeSettings } from './settingsCore.js'
-import { trainableDishes, attachIngredients, readyByLevel, levelMap, isUnlocked } from './levelsCore.js'
+import { trainableDishes, attachFacts, readyByLevel, levelMap, isUnlocked } from './levelsCore.js'
 import { composeCards, todaySummary } from './composeCore.js'
 import { buildQuestion, gradeQuestion, scoreAnswers } from './exerciseCore.js'
 import { ratingFor, review } from './fsrsCore.js'
@@ -24,12 +24,12 @@ async function loadContext(member) {
     one(deps.db.from('restaurants').select('id, name, timezone').eq('id', rid).maybeSingle()),
     one(deps.db.from('trn_settings').select('value').eq('restaurant_id', rid).maybeSingle()),
     selectAll(() => deps.db.from('menu_items').select('id, dish_name, menu_section, section_order, product_type, is_hidden, course_role, description').eq('restaurant_id', rid)),
-    selectAll(() => deps.db.from('trn_dish_facts').select('dish_id, fact_type, status, value').eq('restaurant_id', rid).eq('fact_type', 'ingredients').eq('status', 'confirmed')),
+    selectAll(() => deps.db.from('trn_dish_facts').select('dish_id, fact_type, status, value').eq('restaurant_id', rid).in('fact_type', ['ingredients', 'wine_grape', 'wine_vintage']).eq('status', 'confirmed')),
     selectAll(() => deps.db.from('trn_card_states').select('*').eq('member_id', member.id)),
     one(deps.db.from('trn_member_state').select('*').eq('member_id', member.id).maybeSingle()),
   ])
   const settings = mergeSettings(settingsRow?.value)
-  const dishes = attachIngredients(trainableDishes(menu), facts)
+  const dishes = attachFacts(trainableDishes(menu), facts)
   const ready = readyByLevel(dishes)
   const tz = restaurant?.timezone || DEFAULT_TZ
   const now = deps.now()
@@ -74,7 +74,8 @@ export async function createSession(member) {
   if (plan.kind === 'empty') return { kind: 'empty', questions: [], reason: ctx.ready[1].length === 0 ? 'no_content' : 'nothing_to_do' }
 
   const bctx = {
-    dishes: ctx.ready[1].map((d) => ({ ...d, ingredients: ctx.dishes.find((x) => x.id === d.id)?.ingredients || null })),
+    dishes: ctx.ready[1], // уже с составом и данными по вину (attachFacts)
+    year: Number(String(ctx.today).slice(0, 4)) || undefined,
     sections: [...new Set(ctx.ready[1].map((d) => d.section))],
     settings: ctx.settings,
     rng: deps.rng,

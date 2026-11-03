@@ -8,11 +8,17 @@
 // текст инструкции рисует приложение через i18n по `kind`.
 
 import { norm, distractorsFor, shuffle } from './distractorCore.js'
+import { COMMON_GRAPES, grapesMentionedIn } from './grapeCore.js'
 
 export const KINDS = {
   1: ['menu_grid', 'which_section'],
-  2: ['build_dish', 'odd_one', 'guess_dish'],
+  2: ['build_dish', 'odd_one', 'guess_dish', 'wine_grape', 'wine_vintage', 'guess_wine'],
 }
+
+// Группа позиции: еда, безалкогольные напитки, алкоголь. Ложные варианты берём только
+// из своей группы — иначе «лимонад или стейк» отгадывается без знаний.
+const groupOf = (d) => (d.productType === 'alcohol' ? 'alcohol' : d.productType === 'drink' ? 'drink' : 'food')
+const sameGroup = (dish, ctx) => ctx.dishes.filter((d) => d.id !== dish.id && groupOf(d) === groupOf(dish))
 
 const keyIngredients = (dish) => (dish.ingredients || []).filter((i) => i.is_key).map((i) => i.name)
 const allIngredientKeys = (dish) => new Set((dish.ingredients || []).map((i) => norm(i.name)))
@@ -76,8 +82,9 @@ function foreignIngredients(dish, ctx, n) {
     }
     return out
   }
-  const same = ctx.dishes.filter((d) => d.id !== dish.id && d.section === dish.section && d.ingredients)
-  const rest = ctx.dishes.filter((d) => d.id !== dish.id && d.section !== dish.section && d.ingredients)
+  const mates = sameGroup(dish, ctx).filter((d) => d.ingredients)
+  const same = mates.filter((d) => d.section === dish.section)
+  const rest = mates.filter((d) => d.section !== dish.section)
   const names = (ds) => ds.flatMap((d) => d.ingredients.map((i) => i.name))
   const first = shuffle(pool(names(same)), ctx.rng)
   const more = shuffle(pool(names(rest)).filter((x) => !first.includes(x)), ctx.rng)
@@ -106,8 +113,9 @@ function oddOne(dish, ctx) {
 function guessDish(dish, ctx) {
   const keys = keyIngredients(dish)
   if (keys.length < 2) return null
-  const same = ctx.dishes.filter((d) => d.id !== dish.id && d.section === dish.section)
-  const rest = ctx.dishes.filter((d) => d.id !== dish.id && d.section !== dish.section)
+  const mates = sameGroup(dish, ctx)
+  const same = mates.filter((d) => d.section === dish.section)
+  const rest = mates.filter((d) => d.section !== dish.section)
   shuffle(same, ctx.rng)
   shuffle(rest, ctx.rng)
   const wrong = [...same, ...rest].slice(0, 3)
@@ -116,7 +124,58 @@ function guessDish(dish, ctx) {
   return { kind: 'guess_dish', subject: { ingredients: keys }, options, multi: false, answer: [idOf(options, dish.name)] }
 }
 
-const BUILDERS = { menu_grid: menuGrid, which_section: whichSection, build_dish: buildDish, odd_one: oddOne, guess_dish: guessDish }
+// ── Вино ──
+const overlaps = (a, b) => a.some((x) => b.includes(x))
+
+// Название, выдающее ответ («Мерло Резерва»), для вопроса про сорт не годится.
+const nameGivesAway = (dish) => {
+  const named = grapesMentionedIn(dish.name)
+  return named.length > 0 && dish.wine.grapes.some((g) => named.includes(g))
+}
+
+function wineGrape(dish, ctx) {
+  const grapes = dish.wine?.grapes || []
+  if (!grapes.length || grapes.length > 4 || nameGivesAway(dish)) return null
+  const mine = new Set(grapes.map(norm))
+  // Сначала сорта других вин из этой же карты (правдоподобнее), затем общий словарь.
+  const fromMenu = sameGroup(dish, ctx).flatMap((d) => d.wine?.grapes || [])
+  const pool = []
+  for (const g of [...shuffle([...new Set(fromMenu)], ctx.rng), ...shuffle([...COMMON_GRAPES], ctx.rng)]) {
+    if (!mine.has(norm(g)) && !pool.includes(g)) pool.push(g)
+  }
+  const wrong = pool.slice(0, grapes.length > 1 ? 6 - grapes.length : 3)
+  if (wrong.length < 2) return null
+  const options = withIds([...grapes, ...wrong], ctx.rng)
+  return {
+    kind: 'wine_grape', subject: { dishName: dish.name }, options,
+    multi: grapes.length > 1, answer: grapes.map((g) => idOf(options, g)),
+  }
+}
+
+function wineVintage(dish, ctx) {
+  const year = dish.wine?.vintage
+  if (!Number.isInteger(year)) return null
+  const top = ctx.year || new Date().getFullYear()
+  const offsets = shuffle([-4, -3, -2, -1, 1, 2, 3, 4], ctx.rng)
+  const wrong = offsets.map((o) => year + o).filter((y) => y <= top).slice(0, 3)
+  if (wrong.length < 3) return null
+  const options = withIds([String(year), ...wrong.map(String)], ctx.rng)
+  return { kind: 'wine_vintage', subject: { dishName: dish.name }, options, multi: false, answer: [idOf(options, String(year))] }
+}
+
+// «Какое вино из этих сортов?» Лишние вина берём только с известными сортами и без пересечения:
+// иначе у двух мерло верными окажутся оба.
+function guessWine(dish, ctx) {
+  const grapes = dish.wine?.grapes || []
+  if (!grapes.length || nameGivesAway(dish)) return null
+  const wrong = sameGroup(dish, ctx).filter((d) => d.wine?.grapes?.length && !overlaps(d.wine.grapes, grapes) && !overlaps(grapesMentionedIn(d.name), grapes))
+  shuffle(wrong, ctx.rng)
+  if (wrong.length < 3) return null
+  const options = withIds([dish.name, ...wrong.slice(0, 3).map((d) => d.name)], ctx.rng)
+  return { kind: 'guess_wine', subject: { grapes }, options, multi: false, answer: [idOf(options, dish.name)] }
+}
+
+const BUILDERS = { wine_grape: wineGrape, wine_vintage: wineVintage, guess_wine: guessWine, menu_grid: menuGrid, which_section: whichSection, build_dish: buildDish, odd_one: oddOne, guess_dish: guessDish }
 
 // card: { cardKey, dishId, level }. ctx: { dishes, sections, settings, rng }.
 // Пробует виды упражнений уровня в случайном порядке; null — ни один не собрался.

@@ -286,3 +286,23 @@ test('администратор: список официантов с прог�
   assert.equal((() => { try { assertAdmin({ headers: {} }, 'not-uuid') } catch (e) { return e.status } })(), 400)
   delete process.env.ADMIN_TOKEN
 })
+
+test('вино в сессии: вопросы про сорт/год собираются из подтверждённых фактов, неподтверждённое не попадает', async () => {
+  const wines = [['w1', 'Каберне Резерв', ['Каберне Совиньон', 'Мерло'], 2019], ['w2', 'Белое сухое', ['Совиньон блан'], 2021],
+    ['w3', 'Розовое', ['Гренаш', 'Сира'], 2022], ['w4', 'Красное', ['Темпранильо'], 2018], ['w5', 'Игристое', ['Шардоне'], 2020]]
+  for (const [id, name] of wines) t.menu_items.push(dish(id, name, 'Вино', { product_type: 'alcohol' }))
+  for (const [id, , grapes, year] of wines) {
+    t.trn_dish_facts.push({ restaurant_id: R, dish_id: id, fact_type: 'wine_grape', status: 'confirmed', value: { grapes } })
+    t.trn_dish_facts.push({ restaurant_id: R, dish_id: id, fact_type: 'wine_vintage', status: 'confirmed', value: { year } })
+  }
+  t.menu_items.push(dish('w6', 'Чёрновик', 'Вино', { product_type: 'alcohol' }))
+  t.trn_dish_facts.push({ restaurant_id: R, dish_id: 'w6', fact_type: 'wine_grape', status: 'draft', value: { grapes: ['Пино Нуар'] } })
+  t.trn_settings.push({ restaurant_id: R, value: { unlock_points: { 2: 0 }, session_cards: 60, new_cards_per_day: 60 } })
+  const member = await registered()
+  const s = await svc.createSession(member)
+  const wine = s.questions.filter((q) => ['wine_grape', 'wine_vintage', 'guess_wine'].includes(q.kind))
+  assert.ok(wine.length >= 3, `вопросов про вино: ${wine.length}`)
+  assert.ok(wine.every((q) => q.level === 2 && !JSON.stringify(q).includes('Чёрновик') && !JSON.stringify(q).includes('Пино')))
+  const r = await svc.submitAnswers(member, { sessionId: s.sessionId, answers: correct(s) })
+  assert.ok(r.points > 0)
+})
