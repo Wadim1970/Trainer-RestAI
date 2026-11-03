@@ -4,6 +4,7 @@ import { Page, Notice } from '../components/Page'
 import OtpForm from '../components/OtpForm'
 import { api, ApiError } from '../lib/api'
 import { supabase } from '../lib/supabase'
+import { authMessage } from '../lib/authMessage'
 import { useAuth } from '../lib/auth'
 import { t } from '../i18n'
 import type { JoinCheck } from '../types'
@@ -72,7 +73,7 @@ export default function JoinScreen() {
     setError('')
     const { error: e } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true } })
     setBusy(false)
-    if (e) return setError(e.message)
+    if (e) return setError(authMessage(e, 'send').text)
     set({ email, step: 'otp' })
   }
 

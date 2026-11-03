@@ -1,7 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { Notice } from './Page'
+import { authMessage } from '../lib/authMessage'
 import { t } from '../i18n'
+
+// Пауза между повторными запросами кода (Supabase всё равно не даст чаще, чем раз в минуту).
+const RESEND_SECONDS = 60
 
 // Ввод кода из письма (Supabase Auth, signInWithOtp / verifyOtp).
 export default function OtpForm({ email, onVerified, onBack }: { email: string; onVerified: () => Promise<void> | void; onBack: () => void }) {
@@ -9,6 +13,13 @@ export default function OtpForm({ email, onVerified, onBack }: { email: string; 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [resent, setResent] = useState(false)
+  const [wait, setWait] = useState(RESEND_SECONDS) // код только что отправлен — сразу повторять рано
+
+  useEffect(() => {
+    if (wait <= 0) return
+    const id = setTimeout(() => setWait((n) => n - 1), 1000)
+    return () => clearTimeout(id)
+  }, [wait])
 
   const verify = async () => {
     if (!supabase || busy) return
@@ -16,7 +27,7 @@ export default function OtpForm({ email, onVerified, onBack }: { email: string; 
     setError('')
     const { error: e } = await supabase.auth.verifyOtp({ email, token: token.trim(), type: 'email' })
     if (e) {
-      setError(t('otpWrong'))
+      setError(authMessage(e, 'verify').text)
       setBusy(false)
       return
     }
@@ -32,8 +43,14 @@ export default function OtpForm({ email, onVerified, onBack }: { email: string; 
     if (!supabase) return
     setError('')
     const { error: e } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true } })
-    if (e) setError(e.message)
-    else setResent(true)
+    if (e) {
+      const m = authMessage(e, 'send')
+      setError(m.text)
+      if (m.seconds) setWait(m.seconds)
+    } else {
+      setResent(true)
+      setWait(RESEND_SECONDS)
+    }
   }
 
   return (
@@ -48,9 +65,9 @@ export default function OtpForm({ email, onVerified, onBack }: { email: string; 
         />
       </label>
       {error && <Notice kind="error">{error}</Notice>}
-      {resent && !error && <Notice>{t('otpSent', { email })}</Notice>}
+      {resent && !error && <Notice>{t('otpResent', { email })}</Notice>}
       <button className="btn primary" type="submit" disabled={busy || token.length < 6}>{t('otpConfirm')}</button>
-      <button className="btn link" type="button" onClick={() => void resend()} disabled={busy}>{t('otpResend')}</button>
+      <button className="btn link" type="button" onClick={() => void resend()} disabled={busy || wait > 0}>{wait > 0 ? t('otpResendIn', { n: wait }) : t('otpResend')}</button>
       <button className="btn link" type="button" onClick={onBack} disabled={busy}>{t('back')}</button>
     </form>
   )

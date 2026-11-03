@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "node --test --test-force-exit \"api/_lib/*.test.js\""
+    "test": "node --test --test-force-exit \"api/_lib/*.test.js\" \"src/lib/*.test.ts\""
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",

@@ -11,7 +11,7 @@
 | База и Supabase (контейнеры `supabase-db`, …) | отдельный сервер с Supabase | `sudo docker exec …` |
 | Приложения RestAI (guest, waiter, admin) | основной VPS, папка `/opt/restai/<репозиторий>` | nginx + pm2, `deploy/*.sh` |
 | API гостя/официанта | pm2: `restai-guest-api` (порт 3001), `restai-waiter-api` (3002) | `deploy/api-server.mjs` |
-| **Тренажёр (новое)** | тот же VPS, `/opt/restai/Trainer-RestAI`, pm2 `restai-trainer-api` (порт **3003**) | по этому документу |
+| **Тренажёр (новое)** | тот же VPS, `/opt/restai/Trainer-RestAI`, pm2 `restai-trainer-api` (порт **3003**) | `deploy/setup-trainer.sh`, автообновление |
 
 ## 1. Сначала: код должен попасть в рабочие ветки
 
@@ -172,46 +172,42 @@ sudo docker exec supabase-db psql -U supabase_admin -d postgres -c "\dt public.t
 
 ## 5. Выкладка тренажёра на VPS
 
-Образец — `deploy/setup-admin.sh` и `deploy/nginx-admin.conf.template` в RestAI.
+Скрипты лежат в репозитории RestAI (`deploy/`), там же, где установка остальных приложений: `setup-trainer.sh`, `nginx-trainer.conf.template`, а также строки для тренажёра в `update.sh`, `auto-update.sh`, `enable-https.sh`. Они повторяют `setup-admin.sh`; на вашем сервере их ещё не запускали (в песочнице с заглушками `sudo`/`nginx`/`pm2` проверены ключевые пути, см. ниже).
+
+Один раз (после слияния веток в `main`, раздел 1):
 
 ```bash
-# 1. DNS: A-запись trainer.restai.pro (или ваш домен) → IP основного VPS. Дождитесь обновления.
-# 2. Код (репозиторий закрытый — нужен deploy-ключ только на чтение, как для RestAI, см. deploy/README.md п.1):
-ssh-keygen -t ed25519 -N "" -f ~/.ssh/restai_trainer -C "restai-server trainer"
-cat ~/.ssh/restai_trainer.pub    # → GitHub: Trainer-RestAI → Settings → Deploy keys (без записи)
-# добавьте в ~/.ssh/config блок Host github-trainer (по образцу github-restai) и:
-git clone -b main git@github-trainer:Wadim1970/Trainer-RestAI.git /opt/restai/Trainer-RestAI
-
-# 3. Переменные (раздел 4):
-cp /opt/restai/Trainer-RestAI/.env.example /opt/restai/Trainer-RestAI/.env.production
-nano /opt/restai/Trainer-RestAI/.env.production && chmod 600 /opt/restai/Trainer-RestAI/.env.production
-
-# 4. Сборка и API
-cd /opt/restai/Trainer-RestAI && npm ci --no-audit --no-fund && npm run build
-pm2 start /opt/restai/RestAI/deploy/api-server.mjs --name restai-trainer-api -- --dir /opt/restai/Trainer-RestAI --port 3003
-pm2 save
-
-# 5. nginx
-TRAINER_DOMAIN=trainer.restai.pro
-sed "s/__TRAINER_DOMAIN__/$TRAINER_DOMAIN/g" /opt/restai/Trainer-RestAI/deploy/nginx-trainer.conf.template \
-  | sudo tee /etc/nginx/sites-available/restai-trainer >/dev/null
-sudo ln -sf /etc/nginx/sites-available/restai-trainer /etc/nginx/sites-enabled/restai-trainer
-sudo nginx -t && sudo systemctl reload nginx
-
-# 6. HTTPS (только после того, как DNS указывает на сервер)
-sudo certbot --nginx --non-interactive --agree-tos -m <почта> --redirect --cert-name restai-trainer -d $TRAINER_DOMAIN
+git -C /opt/restai/RestAI pull          # подтянуть новые скрипты deploy/
+# 1. DNS: A-запись trainer.restai.pro (или ваш домен) → IP этого сервера
+# 2. Установка: создаёт deploy-ключ, клонирует репозиторий, собирает, поднимает API (pm2, порт 3003), настраивает nginx
+TRAINER_DOMAIN=trainer.restai.pro bash /opt/restai/RestAI/deploy/setup-trainer.sh
 ```
 
-Проверка:
+Скрипт остановится дважды — это нормально:
+1. **Не удалось склонировать** (репозиторий закрытый): он напечатает публичный ключ. Добавьте его в GitHub: Trainer-RestAI → Settings → Deploy keys → Add deploy key (**без** галочки «Allow write access») и запустите скрипт снова.
+2. **Создан `.env.production`**: заполните его (раздел 4) и запустите снова. Скрипт проверит обязательные значения и откажется продолжать, если что-то пусто или осталось в виде `<…>`.
+
+Дальше:
+
+```bash
+# 3. HTTPS — только после того, как DNS указывает на сервер
+EMAIL=<почта> TRAINER_DOMAIN=trainer.restai.pro bash /opt/restai/RestAI/deploy/enable-https.sh trainer
+# 4. Автообновление (если ещё не ставили): раз в 2 минуты смотрит main и выкладывает новое
+bash /opt/restai/RestAI/deploy/auto-update.sh install
+```
+
+Вручную обновить сразу: `bash /opt/restai/RestAI/deploy/update.sh trainer`.
+
+Проверка (скрипт печатает её сам в конце):
 ```bash
 curl -fsS http://127.0.0.1:3003/api/__health          # {"ok":true,"routes":[…/api/me,/api/session,…]}
 curl -s -o /dev/null -w '%{http_code}\n' https://trainer.restai.pro/            # 200
 curl -s https://trainer.restai.pro/mail/magic_link.html | grep -c 'Token'       # 1 — Supabase заберёт шаблон
 ```
 
-**Ограничения, о которых нужно помнить:** [Certain]
-- Файл `nginx-trainer.conf.template` и порядок команд **не запускались на вашем сервере** — они повторяют `setup-admin.sh`, но проверьте `sudo nginx -t` перед перезагрузкой. В контейнере, где я работал, nginx не установлен, конфиг я проверить не мог.
-- Автовыкладка (`auto-update.sh`) тренажёр не знает: обновлять вручную (`git pull`, `npm ci && npm run build`, `pm2 reload restai-trainer-api --update-env`), пока в `deploy/` RestAI не добавят поддержку.
+**Ограничения:** [Certain]
+- Скрипты проверены в песочнице: настоящие `bash`, `git`, `npm`, `api-server.mjs`, но заглушки `sudo`, `nginx`, `pm2`. Не проверено на вашем сервере: `nginx -t` на вашей конфигурации, реальный `pm2`, `certbot`, клон по deploy-ключу из GitHub. Перед первым запуском посмотрите скрипт и после — `sudo nginx -t`.
+- Миграции базы автообновление **не запускает** (как и для остальных приложений): их применяют вручную (раздел 3).
 - Запускайте API **одним** процессом pm2: лимит попыток входа хранится в памяти процесса.
 
 ## 6. Приёмка: пройти путь целиком

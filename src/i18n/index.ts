@@ -20,4 +20,5 @@ export function plural(n: number, one: string, few: string, many: string): strin
 export const cardsWord = (n: number) => plural(n, 'карточка', 'карточки', 'карточек')
 export const minutesWord = (n: number) => plural(n, 'минута', 'минуты', 'минут')
 export const daysWord = (n: number) => plural(n, 'день', 'дня', 'дней')
+export const secondsWord = (n: number) => plural(n, 'секунду', 'секунды', 'секунд')
 export const dishesWord = (n: number) => plural(n, 'блюдо', 'блюда', 'блюд')

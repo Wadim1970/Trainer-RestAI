@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Page, Notice } from '../components/Page'
 import OtpForm from '../components/OtpForm'
 import { supabase } from '../lib/supabase'
+import { authMessage } from '../lib/authMessage'
 import { useAuth } from '../lib/auth'
 import { t } from '../i18n'
 
@@ -24,7 +25,7 @@ export default function LoginScreen() {
     // shouldCreateUser: false — вход только для тех, кто уже есть; новых регистрирует код-приглашение.
     const { error: err } = await supabase.auth.signInWithOtp({ email: e, options: { shouldCreateUser: false } })
     setBusy(false)
-    if (err) return setError(err.message)
+    if (err) return setError(authMessage(err, 'login').text)
     setEmail(e)
     setStep('otp')
   }
