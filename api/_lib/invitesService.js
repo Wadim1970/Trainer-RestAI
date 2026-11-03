@@ -3,6 +3,7 @@
 import { deps, selectAll, must } from './db.js'
 import { httpError } from './http.js'
 import { generateCode, formatCode, inviteState, DEFAULT_INVITE_DAYS, MAX_INVITES_PER_REQUEST } from './inviteCore.js'
+import { isDemoEmail } from './demoService.js'
 import { totalPoints, visibleStreak, dayIn, DEFAULT_TZ } from './progressCore.js'
 
 // Ссылка для QR. Без TRAINER_PUBLIC_URL ссылки нет: относительный адрес в QR никуда не ведёт,
@@ -81,7 +82,8 @@ export async function listMembers(restaurantId) {
   ])
   const byId = new Map(states.map((s) => [s.member_id, s]))
   return {
-    members: members.map((m) => {
+    // Демо-аккаунты (показ ресторанам) в списке официантов не нужны.
+    members: members.filter((m) => !isDemoEmail(m.email)).map((m) => {
       const s = byId.get(m.id)
       return {
         id: m.id, name: m.name, email: m.email, registeredAt: m.created_at,

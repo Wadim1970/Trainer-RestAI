@@ -42,6 +42,7 @@ export default function LoginScreen() {
           {error && <Notice kind="error">{error}</Notice>}
           <button className="btn primary" type="submit" disabled={busy}>{t('sendCode')}</button>
           <Link className="btn link" to="/join">{t('toJoin')}</Link>
+          <Link className="btn link small" to="/demo">{t('demoLink')}</Link>
         </form>
       ) : (
         <OtpForm email={email} onVerified={async () => { await refresh(); nav('/', { replace: true }) }} onBack={() => setStep('email')} />

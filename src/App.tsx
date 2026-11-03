@@ -4,6 +4,7 @@ import { supabase } from './lib/supabase'
 import { Loader, Notice, Page } from './components/Page'
 import JoinScreen from './screens/JoinScreen'
 import LoginScreen from './screens/LoginScreen'
+import DemoScreen from './screens/DemoScreen'
 import HomeScreen from './screens/HomeScreen'
 import LevelsScreen from './screens/LevelsScreen'
 import SessionScreen from './screens/SessionScreen'
@@ -34,6 +35,7 @@ export default function App() {
         <Routes>
           <Route path="/join" element={<JoinScreen />} />
           <Route path="/login" element={<LoginScreen />} />
+          <Route path="/demo" element={<DemoScreen />} />
           <Route element={<RequireMember />}>
             <Route path="/" element={<HomeScreen />} />
             <Route path="/levels" element={<LevelsScreen />} />

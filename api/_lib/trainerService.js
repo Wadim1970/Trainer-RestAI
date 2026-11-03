@@ -11,6 +11,7 @@ import { trainableDishes, attachIngredients, readyByLevel, levelMap, isUnlocked 
 import { composeCards, todaySummary } from './composeCore.js'
 import { buildQuestion, gradeQuestion, scoreAnswers } from './exerciseCore.js'
 import { ratingFor, review } from './fsrsCore.js'
+import { isDemoEmail } from './demoService.js'
 import { dayIn, nextStreak, visibleStreak, addPoints, totalPoints, DEFAULT_TZ } from './progressCore.js'
 
 const MAX_ANSWERS = 100
@@ -57,6 +58,7 @@ export async function getMe(member) {
   const open = openLevelsOf(ctx.map)
   return {
     member: { id: member.id, name: member.name },
+    demo: isDemoEmail(member.email),
     restaurant: { id: member.restaurant_id, name: ctx.restaurant?.name || 'Ресторан' },
     ...publicState(ctx),
     today: todaySummary({ ready: ctx.ready, states: ctx.states, openLevels: open, settings: ctx.settings, now: ctx.now, newToday: newTodayOf(ctx) }),
