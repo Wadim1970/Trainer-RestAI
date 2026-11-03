@@ -4,6 +4,7 @@
 //
 //   node scripts/demo-seed.mjs                      # на VPS: API официанта на 127.0.0.1:3002
 //   node scripts/demo-seed.mjs --api https://waiter.restai.pro
+//   node scripts/demo-seed.mjs --explain            # только показать, какие блюда будут обработаны, а какие нет и почему (ничего не меняет)
 //
 // ВАЖНО: это демо-данные, а не проверка шефа. В журнале подтверждений пишется «Демо (автоматически)».
 // Для настоящего ресторана так делать нельзя: скрипт откажется работать с любым рестораном,
@@ -40,6 +41,32 @@ async function call(method, query, body) {
   const json = await res.json().catch(() => ({}))
   if (!res.ok) die(`${method} ${res.status}: ${json.error || 'ошибка сервера'}`)
   return json
+}
+
+// Режим «объяснить»: только чтение. Раскладывает блюда студии по причинам, ничего не меняет.
+if (args.includes('--explain')) {
+  const studio = await call('GET')
+  const groups = { food: [], drink: [], hidden: [], none: [], done: [] }
+  for (const d of studio.dishes) {
+    if (d.productType !== 'food') groups.drink.push(d.name)
+    else if (d.hidden) groups.hidden.push(d.name)
+    else if (!d.statuses.ingredients) groups.none.push(d.name)
+    else if (d.statuses.ingredients !== 'draft') groups.done.push(d.name)
+    else groups.food.push(d.name)
+  }
+  const show = (title, names) => {
+    console.log(`\n${title}: ${names.length}`)
+    for (const n of names.slice(0, 40)) console.log(`   • ${n}`)
+    if (names.length > 40) console.log(`   … и ещё ${names.length - 40}`)
+  }
+  console.log(`Всего блюд в студии: ${studio.dishes.length} (копии в «Популярном» не считаются — это те же блюда)`)
+  show('БУДУТ ОБРАБОТАНЫ (еда, не скрыто, состав из меню ещё не подтверждён)', groups.food)
+  show('Исключены — напитки и алкоголь (состав не учим)', groups.drink)
+  show('Исключены — скрыты от гостя', groups.hidden)
+  show('Исключены — в меню не указан состав (нечего подтверждать)', groups.none)
+  show('Исключены — состав уже подтверждён или отклонён', groups.done)
+  console.log('\nПримечание: блюда без состава могли ещё не попасть в студию как черновики — запуск без --explain сначала синхронизирует меню.')
+  process.exit(0)
 }
 
 const sync = await call('POST', null, { action: 'sync' })
