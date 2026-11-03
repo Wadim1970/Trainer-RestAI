@@ -11,12 +11,20 @@ export const deps = {
   ),
   now: () => new Date(),
   rng: Math.random,
-  // Управление пользователями Supabase Auth (service_role): нужен только демо-входу. В тестах подменяется.
+  // Управление пользователями Supabase Auth (service_role): демо-вход и заведение пользователей по списку доступа. В тестах подменяется.
   authAdmin: {
     async createUser({ email, password }) {
       const { data, error } = await deps.db.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { demo: true } })
       if (error) throw error
       return { id: data.user.id }
+    },
+    // Пользователь для входа по коду из письма: подтверждённый, без пароля. Уже есть такая почта
+    // (например, это же человек в Waiter-app) — не ошибка: используем существующего.
+    async ensureUser({ email }) {
+      const { data, error } = await deps.db.auth.admin.createUser({ email, email_confirm: true })
+      if (!error) return { id: data.user.id, created: true }
+      if (error.code === 'email_exists' || error.status === 422 || /already.*registered|already been registered|email.*exists/i.test(String(error.message))) return { id: null, created: false }
+      throw error
     },
     async deleteUser(id) {
       const { error } = await deps.db.auth.admin.deleteUser(id)

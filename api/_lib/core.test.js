@@ -10,7 +10,7 @@ import { trainableDishes, attachIngredients, readyByLevel, levelMap } from './le
 import { composeCards, cardKey, todaySummary } from './composeCore.js'
 import { dayIn, prevDay, nextStreak, visibleStreak, addPoints, totalPoints } from './progressCore.js'
 import { clientIp, tooMany } from './http.js'
-import { generateCode, normalizeCode, formatCode, inviteState, cleanEmail, cleanName, CODE_ALPHABET } from './inviteCore.js'
+import { cleanEmail, cleanName, parseEmailList, nameFromEmail, pickEnrollment, MAX_EMAILS_PER_REQUEST } from './enrollmentCore.js'
 
 const S = mergeSettings({})
 
@@ -286,35 +286,49 @@ test('баллы уровня не уходят ниже нуля', () => {
   assert.equal(totalPoints({ 1: 3, 2: 4 }), 7)
 })
 
-// ── коды-приглашения ──
-test('код: формат, нормализация ввода и QR-ссылки', () => {
-  const code = generateCode()
-  assert.equal(code.length, 8)
-  assert.ok([...code].every((c) => CODE_ALPHABET.includes(c)))
-  assert.equal(normalizeCode(' k7m2-qx9p '), 'K7M2QX9P')
-  assert.equal(normalizeCode('K7M2QX9'), null)
-  assert.equal(normalizeCode('K7M2-QX9O'), null) // «O» нет в алфавите
-  assert.equal(normalizeCode('https://x/join?code=K7M2QX9P'), null) // длиннее 8 — это ссылка, её разбирает приложение
-  assert.equal(formatCode('K7M2QX9P'), 'K7M2-QX9P')
-  assert.equal(new Set(Array.from({ length: 200 }, () => generateCode())).size, 200)
-})
-
-test('состояние приглашения', () => {
-  const now = new Date('2026-11-01T10:00:00Z')
-  const base = { expires_at: '2026-11-08T10:00:00Z', used_at: null, revoked_at: null }
-  assert.equal(inviteState(base, now), 'ok')
-  assert.equal(inviteState(null, now), 'missing')
-  assert.equal(inviteState({ ...base, used_at: '2026-11-01T09:00:00Z' }, now), 'used')
-  assert.equal(inviteState({ ...base, revoked_at: '2026-11-01T09:00:00Z' }, now), 'revoked')
-  assert.equal(inviteState({ ...base, expires_at: '2026-11-01T10:00:00Z' }, now), 'expired')
-})
-
+// ── доступы по email ──
 test('имя и email', () => {
   assert.equal(cleanName('  Иван   Петров '), 'Иван Петров')
   assert.equal(cleanName('   '), null)
+  assert.equal(cleanName('я'.repeat(81)), null)
   assert.equal(cleanEmail(' Ivan@Mail.RU '), 'ivan@mail.ru')
   assert.equal(cleanEmail('ivan@'), null)
   assert.equal(cleanEmail('ivan mail@x.ru'), null)
+  assert.equal(cleanEmail('a@b.c'), null)
+})
+
+test('список email: «email Имя», «Имя <email>», запятые и «;», повторы и мусор', () => {
+  const r = parseEmailList('ivan@mail.ru Иван Петров\nAnna <Anna.S@Mail.ru>\nbad@\n ivan@mail.ru ; maria@x.ru, Мария\n\nprivet')
+  assert.deepEqual(r.map((x) => [x.email, x.name, x.error]), [
+    ['ivan@mail.ru', 'Иван Петров', null],
+    ['anna.s@mail.ru', 'Anna', null],
+    [null, null, 'invalid'],
+    ['maria@x.ru', 'Мария', null],
+    [null, null, 'invalid'],
+  ])
+  assert.deepEqual(parseEmailList(['a@b.ru Аня', 'c@d.ru']).map((x) => x.email), ['a@b.ru', 'c@d.ru'])
+  assert.deepEqual(parseEmailList(''), [])
+  assert.deepEqual(parseEmailList(null), [])
+  assert.equal(parseEmailList('x@y.ru.').at(0).email, 'x@y.ru', 'точка в конце строки не часть адреса')
+  assert.equal(MAX_EMAILS_PER_REQUEST, 100)
+})
+
+test('имя из почты, когда администратор его не указал', () => {
+  assert.equal(nameFromEmail('ivan.petrov93@mail.ru'), 'Ivan Petrov')
+  assert.equal(nameFromEmail('123@mail.ru'), 'Официант')
+  assert.equal(nameFromEmail(''), 'Официант')
+})
+
+test('запись доступа по почте: открытая важнее закрытой, иначе последняя', () => {
+  const rows = [
+    { id: 1, status: 'closed', created_at: '2026-10-01T00:00:00Z' },
+    { id: 2, status: 'active', created_at: '2026-10-05T00:00:00Z' },
+    { id: 3, status: 'closed', created_at: '2026-10-09T00:00:00Z' },
+  ]
+  assert.equal(pickEnrollment(rows).open.id, 2)
+  assert.equal(pickEnrollment(rows).latest.id, 3)
+  assert.equal(pickEnrollment([rows[0], rows[2]]).open, null)
+  assert.deepEqual(pickEnrollment([]), { open: null, latest: null })
 })
 
 // ── защита от перебора кода ──

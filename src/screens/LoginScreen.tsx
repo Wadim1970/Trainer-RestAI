@@ -4,10 +4,11 @@ import { Page, Notice } from '../components/Page'
 import OtpForm from '../components/OtpForm'
 import { supabase } from '../lib/supabase'
 import { authMessage } from '../lib/authMessage'
+import { classifyAuthError } from '../lib/authErrors'
 import { useAuth } from '../lib/auth'
 import { t } from '../i18n'
 
-// Вход зарегистрированного официанта: email → код из письма.
+// Вход официанта: email (внесён администратором в список доступа) → код из письма.
 export default function LoginScreen() {
   const nav = useNavigate()
   const { refresh } = useAuth()
@@ -22,10 +23,12 @@ export default function LoginScreen() {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e)) return setError(t('emailInvalid'))
     setBusy(true)
     setError('')
-    // shouldCreateUser: false — вход только для тех, кто уже есть; новых регистрирует код-приглашение.
+    // shouldCreateUser: false — пользователей заводит сервер, когда администратор вносит почту в список.
+    // Если почты нет, Supabase отвечает ошибкой, но человеку мы этого не раскрываем: экран кода открывается
+    // одинаково для любой почты (иначе по ответу можно было бы угадывать, кто есть в списке).
     const { error: err } = await supabase.auth.signInWithOtp({ email: e, options: { shouldCreateUser: false } })
     setBusy(false)
-    if (err) return setError(authMessage(err, 'login').text)
+    if (err && classifyAuthError(err, 'login').key !== 'errNotRegistered') return setError(authMessage(err, 'login').text)
     setEmail(e)
     setStep('otp')
   }
@@ -41,8 +44,8 @@ export default function LoginScreen() {
           </label>
           {error && <Notice kind="error">{error}</Notice>}
           <button className="btn primary" type="submit" disabled={busy}>{t('sendCode')}</button>
-          <Link className="btn link" to="/join">{t('toJoin')}</Link>
-          <Link className="btn link small" to="/demo">{t('demoLink')}</Link>
+          <div className="or"><span>{t('or')}</span></div>
+          <Link className="btn secondary" to="/demo">{t('demoLink')}</Link>
         </form>
       ) : (
         <OtpForm email={email} onVerified={async () => { await refresh(); nav('/', { replace: true }) }} onBack={() => setStep('email')} />

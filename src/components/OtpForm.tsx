@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { Notice } from './Page'
 import { authMessage } from '../lib/authMessage'
+import { classifyAuthError } from '../lib/authErrors'
 import { t } from '../i18n'
 
 // Пауза между повторными запросами кода (Supabase всё равно не даст чаще, чем раз в минуту).
@@ -42,9 +43,9 @@ export default function OtpForm({ email, onVerified, onBack }: { email: string; 
   const resend = async () => {
     if (!supabase) return
     setError('')
-    const { error: e } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true } })
-    if (e) {
-      const m = authMessage(e, 'send')
+    const { error: e } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } })
+    if (e && classifyAuthError(e, 'login').key !== 'errNotRegistered') {
+      const m = authMessage(e, 'login')
       setError(m.text)
       if (m.seconds) setWait(m.seconds)
     } else {

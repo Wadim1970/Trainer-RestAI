@@ -2,7 +2,6 @@ import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router-dom
 import { AuthProvider, useAuth } from './lib/auth'
 import { supabase } from './lib/supabase'
 import { Loader, Notice, Page } from './components/Page'
-import JoinScreen from './screens/JoinScreen'
 import LoginScreen from './screens/LoginScreen'
 import DemoScreen from './screens/DemoScreen'
 import HomeScreen from './screens/HomeScreen'
@@ -33,7 +32,6 @@ export default function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          <Route path="/join" element={<JoinScreen />} />
           <Route path="/login" element={<LoginScreen />} />
           <Route path="/demo" element={<DemoScreen />} />
           <Route element={<RequireMember />}>
@@ -41,6 +39,7 @@ export default function App() {
             <Route path="/levels" element={<LevelsScreen />} />
             <Route path="/session" element={<SessionScreen />} />
           </Route>
+          <Route path="/join" element={<Navigate to="/login" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
