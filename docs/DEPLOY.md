@@ -68,14 +68,14 @@ SITE_URL=https://<домен тренажёра>
 
 Без этого официант получит письмо со ссылкой, а приложение ждёт код. Шаблоны уже лежат в репозитории (`public/mail/confirmation.html` и `public/mail/magic_link.html`, в них `{{ .Token }}`) и после выкладки доступны по адресу `https://<домен тренажёра>/mail/…`.
 
-**Нужны оба шаблона:** новому пользователю (регистрация) уходит «Confirm signup», существующему (вход) — «Magic Link» [Likely]. Добавьте в сервис `auth` в `docker-compose.yml` (или в `docker-compose.override.yml`):
+**Оба шаблона одинаковые** (нейтральные, «RestAI», без слова «тренажёр»): шаблоны писем Supabase действуют на **весь проект**, а не на одно приложение, поэтому текст не должен быть привязан к тренажёру. Официанты из списка заведены сервером как подтверждённые, им уходит «Magic Link»; «Confirm signup» нужен на случай неподтверждённой записи [Likely]. Добавьте в сервис `auth` в `docker-compose.yml` (или в `docker-compose.override.yml`):
 
 ```yaml
     environment:
       GOTRUE_MAILER_TEMPLATES_CONFIRMATION: https://<домен тренажёра>/mail/confirmation.html
       GOTRUE_MAILER_TEMPLATES_MAGIC_LINK: https://<домен тренажёра>/mail/magic_link.html
-      GOTRUE_MAILER_SUBJECTS_CONFIRMATION: Код для регистрации в тренажёре
-      GOTRUE_MAILER_SUBJECTS_MAGIC_LINK: Код для входа в тренажёр
+      GOTRUE_MAILER_SUBJECTS_CONFIRMATION: Код для входа в RestAI
+      GOTRUE_MAILER_SUBJECTS_MAGIC_LINK: Код для входа в RestAI
       GOTRUE_MAILER_OTP_LENGTH: "6"
       GOTRUE_RATE_LIMIT_EMAIL_SENT: "200"
 ```
