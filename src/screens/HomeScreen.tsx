@@ -26,6 +26,8 @@ export default function HomeScreen() {
         <button className="btn link small" onClick={() => void signOut()}>{t('signOut')}</button>
       </div>
 
+      {me.demo && <Notice>{t('demoBadge')}</Notice>}
+
       {stale && <Notice kind="warn"><b>{t('offline')}.</b> {t('offlineHint')}</Notice>}
 
       <section className="card today">

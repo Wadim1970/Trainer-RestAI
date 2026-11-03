@@ -11,6 +11,31 @@ export const deps = {
   ),
   now: () => new Date(),
   rng: Math.random,
+  // Управление пользователями Supabase Auth (service_role): нужен только демо-входу. В тестах подменяется.
+  authAdmin: {
+    async createUser({ email, password }) {
+      const { data, error } = await deps.db.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { demo: true } })
+      if (error) throw error
+      return { id: data.user.id }
+    },
+    async deleteUser(id) {
+      const { error } = await deps.db.auth.admin.deleteUser(id)
+      if (error) throw error
+    },
+    // Настоящая сессия по email+паролю (тот же вход, что у Waiter-app для демо-официанта).
+    async passwordGrant({ email, password }) {
+      const base = String(process.env.SUPABASE_URL || '').replace(/\/$/, '')
+      const key = process.env.SUPABASE_SERVICE_KEY || ''
+      const res = await fetch(`${base}/auth/v1/token?grant_type=password`, {
+        method: 'POST',
+        headers: { apikey: key, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(`GoTrue token ${res.status}: ${data?.msg ?? data?.error_description ?? data?.error ?? res.statusText}`)
+      return { access_token: data.access_token, refresh_token: data.refresh_token, expires_in: data.expires_in, token_type: data.token_type || 'bearer' }
+    },
+  },
   // JWT официанта → { id, email } или null. В тестах подменяется.
   async getUser(jwt) {
     const { data, error } = await deps.db.auth.getUser(jwt)

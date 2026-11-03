@@ -46,6 +46,7 @@ export interface LevelInfo {
 
 export interface Me {
   member: { id: string; name: string }
+  demo?: boolean
   restaurant: { id: string; name: string }
   points: number
   levelPoints: Record<string, number>

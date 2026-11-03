@@ -34,7 +34,14 @@ export default function SessionScreen() {
     }
   }, [])
 
-  useEffect(() => { void load() }, [load])
+  // Сессию выдаём один раз за открытие экрана (React в режиме разработки запускает эффект дважды —
+  // без защиты на сервере создавались бы две сессии, а карточки засчитывались бы по неверной).
+  const started = useRef(false)
+  useEffect(() => {
+    if (started.current) return
+    started.current = true
+    void load()
+  }, [load])
 
   const submit = async (sessionId: string, answers: AnswerInput[], correct: number, total: number) => {
     setPhase({ name: 'saving' })
