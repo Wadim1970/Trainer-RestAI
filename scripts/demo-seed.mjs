@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // Подготовка ДЕМО-данных учебного ресторана «Сыроварня»: подтверждает состав блюд в контент-студии,
-// чтобы в тренажёре работал уровень 2 «Ингредиенты». Ключевыми отмечаются первые 5 ингредиентов.
+// чтобы в тренажёре работал уровень 2 «Состав и вина»:
+//   • еда, безалкогольные напитки, коктейли — подтверждается состав (ключевыми отмечаются первые 5 ингредиентов);
+//   • вина — подтверждаются сорт винограда и год урожая (состав у вин — обрывки описания вкуса, его не учим).
 //
 //   node scripts/demo-seed.mjs                      # на VPS: API официанта на 127.0.0.1:3002
 //   node scripts/demo-seed.mjs --api https://waiter.restai.pro
@@ -43,42 +45,55 @@ async function call(method, query, body) {
   return json
 }
 
-// Режим «объяснить»: только чтение. Раскладывает блюда студии по причинам, ничего не меняет.
+// Вино — по наличию факта «сорт»/«год» в ЛЮБОМ статусе (иначе после подтверждения вино стало бы «обычной позицией»
+// и скрипт подтвердил бы его «состав» — обрывки описания вкуса).
+const isWine = (d) => d.productType === 'alcohol' && !!(d.statuses.wine_grape || d.statuses.wine_vintage)
+const isDraft = (d, type) => d.statuses[type] === 'draft'
+const wineTodo = (d) => isDraft(d, 'wine_grape') || isDraft(d, 'wine_vintage')
+
+// Режим «объяснить»: только чтение. Раскладывает позиции студии по причинам, ничего не меняет.
 if (args.includes('--explain')) {
   const studio = await call('GET')
-  const groups = { food: [], drink: [], hidden: [], none: [], done: [] }
+  const groups = { food: [], drink: [], cocktail: [], wine: [], hidden: [], none: [], done: [] }
   for (const d of studio.dishes) {
-    if (d.productType !== 'food') groups.drink.push(d.name)
-    else if (d.hidden) groups.hidden.push(d.name)
+    if (d.hidden) groups.hidden.push(d.name)
+    else if (isWine(d)) (wineTodo(d) ? groups.wine : groups.done).push(d.name)
     else if (!d.statuses.ingredients) groups.none.push(d.name)
-    else if (d.statuses.ingredients !== 'draft') groups.done.push(d.name)
-    else groups.food.push(d.name)
+    else if (!isDraft(d, 'ingredients')) groups.done.push(d.name)
+    else if (d.productType === 'food') groups.food.push(d.name)
+    else if (d.productType === 'drink') groups.drink.push(d.name)
+    else groups.cocktail.push(d.name)
   }
   const show = (title, names) => {
     console.log(`\n${title}: ${names.length}`)
     for (const n of names.slice(0, 40)) console.log(`   • ${n}`)
     if (names.length > 40) console.log(`   … и ещё ${names.length - 40}`)
   }
-  console.log(`Всего блюд в студии: ${studio.dishes.length} (копии в «Популярном» не считаются — это те же блюда)`)
-  show('БУДУТ ОБРАБОТАНЫ (еда, не скрыто, состав из меню ещё не подтверждён)', groups.food)
-  show('Исключены — напитки и алкоголь (состав не учим)', groups.drink)
+  console.log(`Всего позиций в студии: ${studio.dishes.length} (копии в «Популярном» не считаются — это те же блюда)`)
+  show('БУДУТ ОБРАБОТАНЫ — еда (состав из меню)', groups.food)
+  show('БУДУТ ОБРАБОТАНЫ — безалкогольные напитки (состав)', groups.drink)
+  show('БУДУТ ОБРАБОТАНЫ — коктейли и крепкий алкоголь (состав)', groups.cocktail)
+  show('БУДУТ ОБРАБОТАНЫ — вина (сорт винограда и год урожая)', groups.wine)
   show('Исключены — скрыты от гостя', groups.hidden)
   show('Исключены — в меню не указан состав (нечего подтверждать)', groups.none)
-  show('Исключены — состав уже подтверждён или отклонён', groups.done)
-  console.log('\nПримечание: блюда без состава могли ещё не попасть в студию как черновики — запуск без --explain сначала синхронизирует меню.')
+  show('Исключены — уже подтверждено или отклонено', groups.done)
+  console.log('\nПримечание: позиции без состава могли ещё не попасть в студию как черновики — запуск без --explain сначала синхронизирует меню.')
   process.exit(0)
 }
 
 const sync = await call('POST', null, { action: 'sync' })
-console.log(`Меню синхронизировано: блюд ${sync.dishes}, новых черновиков ${sync.created}.`)
+console.log(`Меню синхронизировано: позиций ${sync.dishes}, новых черновиков ${sync.created}.`)
 
 const studio = await call('GET')
-const todo = studio.dishes.filter((d) => d.productType === 'food' && !d.hidden && d.statuses.ingredients === 'draft')
-console.log(`Блюд с неподтверждённым составом: ${todo.length} (из ${studio.dishes.length}).`)
+const visible = studio.dishes.filter((d) => !d.hidden)
+const wines = visible.filter((d) => isWine(d) && wineTodo(d))
+const rest = visible.filter((d) => !isWine(d) && isDraft(d, 'ingredients'))
+console.log(`К подтверждению: состав у ${rest.length}, вина (сорт/год) — ${wines.length} (из ${studio.dishes.length} позиций).`)
 
 let confirmed = 0
 let skipped = 0
-for (const [n, d] of todo.entries()) {
+let wineFacts = 0
+for (const [n, d] of rest.entries()) {
   const card = await call('GET', { dishId: d.id })
   const fact = card.facts.find((f) => f.type === 'ingredients')
   const items = fact?.value?.items || []
@@ -89,7 +104,18 @@ for (const [n, d] of todo.entries()) {
     value: { items: items.map((i, idx) => ({ name: i.name, is_key: idx < KEY_COUNT })) },
   })
   confirmed++
-  if ((n + 1) % 10 === 0) console.log(`  …обработано ${n + 1} из ${todo.length}`)
+  if ((n + 1) % 10 === 0) console.log(`  …обработано ${n + 1} из ${rest.length}`)
 }
-console.log(`Готово: подтверждён состав у ${confirmed} блюд, пропущено ${skipped}.`)
-console.log('Откройте тренажёр: уровень 2 «Ингредиенты» станет доступен после набора баллов на уровне 1.')
+for (const d of wines) {
+  const card = await call('GET', { dishId: d.id })
+  for (const type of ['wine_grape', 'wine_vintage']) {
+    const fact = card.facts.find((f) => f.type === type)
+    if (!fact || fact.status !== 'draft') continue
+    const ok = type === 'wine_grape' ? (fact.value?.grapes || []).length > 0 : Number.isInteger(fact.value?.year)
+    if (!ok) continue
+    await call('POST', null, { action: 'save', actor: ACTOR, dishId: d.id, factType: type, confirm: true, value: fact.value })
+    wineFacts++
+  }
+}
+console.log(`Готово: подтверждён состав у ${confirmed} позиций (пропущено ${skipped}), у вин — фактов (сорт/год): ${wineFacts}.`)
+console.log('Откройте тренажёр: уровень 2 «Состав и вина» станет доступен после набора баллов на уровне 1.')

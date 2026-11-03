@@ -4,6 +4,7 @@
 // не попадает.
 
 import { norm, roleOf } from './distractorCore.js'
+import { canonicalGrapes } from './grapeCore.js'
 
 const isPopular = (section) => norm(section) === 'популярное'
 
@@ -36,23 +37,38 @@ export function trainableDishes(rows) {
     }))
 }
 
-// facts — строки trn_dish_facts (только fact_type = 'ingredients'). Подтверждённый
-// состав с хотя бы одним ключевым ингредиентом делает блюдо доступным для уровня 2.
-export function attachIngredients(dishes, facts) {
-  const byDish = new Map()
+// facts — строки trn_dish_facts (ingredients, wine_grape, wine_vintage). Берётся только ПОДТВЕРЖДЁННОЕ.
+//  • еда, безалкогольные напитки, коктейли и крепкое: состав (ingredients);
+//  • вино: сорта винограда и год урожая. Состав у вина — обрывки описания вкуса,
+//    поэтому для вин он не используется.
+export function attachFacts(dishes, facts) {
+  const ing = new Map()
+  const grapes = new Map()
+  const vintage = new Map()
   for (const f of facts) {
-    if (f.fact_type !== 'ingredients' || f.status !== 'confirmed' || !f.value || f.value.na) continue
-    byDish.set(f.dish_id, (f.value.items || []).filter((i) => i && String(i.name || '').trim()))
+    if (f.status !== 'confirmed' || !f.value || f.value.na) continue
+    if (f.fact_type === 'ingredients') ing.set(f.dish_id, (f.value.items || []).filter((i) => i && String(i.name || '').trim()))
+    else if (f.fact_type === 'wine_grape') grapes.set(f.dish_id, canonicalGrapes(f.value.grapes))
+    else if (f.fact_type === 'wine_vintage' && Number.isInteger(f.value.year)) vintage.set(f.dish_id, f.value.year)
   }
-  return dishes.map((d) => ({ ...d, ingredients: byDish.get(d.id) || null }))
+  return dishes.map((d) => {
+    const g = grapes.get(d.id) || []
+    const y = vintage.get(d.id) ?? null
+    // Вино (есть подтверждённый сорт или год): состав не используем — у вин это обрывки описания вкуса.
+    if (d.productType === 'alcohol' && (g.length || y)) return { ...d, ingredients: null, wine: { grapes: g, vintage: y } }
+    // Остальное (еда, безалкогольные напитки, коктейли и крепкое): подтверждённый состав.
+    return { ...d, ingredients: ing.get(d.id) || null, wine: null }
+  })
 }
+export const attachIngredients = attachFacts // прежнее имя
+
+// Блюдо готово к уровню 2: подтверждённый состав с ключевым ингредиентом
+// (еда, напитки) либо подтверждённый сорт винограда / год урожая (вино).
+export const level2Ready = (d) => !!(d.wine || (d.ingredients && d.ingredients.some((i) => i.is_key)))
 
 // Какие блюда готовы к каждому уровню.
 export function readyByLevel(dishes) {
-  return {
-    1: dishes,
-    2: dishes.filter((d) => d.productType === 'food' && d.ingredients && d.ingredients.some((i) => i.is_key)),
-  }
+  return { 1: dishes, 2: dishes.filter(level2Ready) }
 }
 
 export const LEVEL_TITLES = { 1: 'names', 2: 'ingredients', 3: 'chef' }
