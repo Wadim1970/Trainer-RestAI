@@ -9,6 +9,7 @@ import { buildQuestion, gradeQuestion, scoreAnswers } from './exerciseCore.js'
 import { trainableDishes, attachIngredients, readyByLevel, levelMap } from './levelsCore.js'
 import { composeCards, cardKey, todaySummary } from './composeCore.js'
 import { dayIn, prevDay, nextStreak, visibleStreak, addPoints, totalPoints } from './progressCore.js'
+import { clientIp, tooMany } from './http.js'
 import { generateCode, normalizeCode, formatCode, inviteState, cleanEmail, cleanName, CODE_ALPHABET } from './inviteCore.js'
 
 const S = mergeSettings({})
@@ -174,6 +175,28 @@ test('«Собери блюдо»: верные — только ключевы�
   for (const o of q.options.filter((x) => !q.answer.includes(x.id))) assert.ok(!own.has(norm(o.label)), `${o.label} есть в блюде`)
 })
 
+test('«лишний» и дистракторы не берут ингредиент, упомянутый в названии или описании блюда', () => {
+  const dd = attachIngredients(trainableDishes([
+    row('g1', 'Греческий', 'Салаты', { description: 'С томатами, фетой и маслинами' }),
+    row('g2', 'Оливье', 'Салаты'),
+    row('g3', 'Винегрет', 'Салаты'),
+    row('g4', 'Мимоза', 'Салаты'),
+  ]), [
+    fact('g1', ing('Фета', 'Маслины', 'Огурцы')),
+    fact('g2', ing('Картофель', 'Горошек', 'Томаты', 'Колбаса')), // «Томаты» — чужой по составу, но в описании Греческого есть
+    fact('g3', ing('Свёкла', 'Капуста', 'Лук')), fact('g4', ing('Рис', 'Яйцо', 'Сыр')),
+  ])
+  for (let seed = 1; seed <= 60; seed++) {
+    const c = { dishes: dd, sections: ['Салаты'], settings: S, rng: seeded(seed) }
+    for (const lv of [2]) {
+      const q = buildQuestion({ cardKey: cardKey(lv, 'g1'), dishId: 'g1', level: lv }, c)
+      if (!q || (q.kind !== 'odd_one' && q.kind !== 'build_dish')) continue
+      const foreign = q.options.filter((o) => !(q.kind === 'odd_one' ? !q.answer.includes(o.id) : q.answer.includes(o.id)))
+      for (const o of foreign) assert.notEqual(norm(o.label), 'томаты', `seed ${seed}: ${q.kind}`)
+    }
+  }
+})
+
 test('проверка ответа: множественный и одиночный выбор', () => {
   const multi = { options: [{ id: 'o0' }, { id: 'o1' }, { id: 'o2' }], multi: true, answer: ['o0', 'o1'] }
   assert.deepEqual(gradeQuestion(multi, ['o1', 'o0']).correct, true)
@@ -292,4 +315,19 @@ test('имя и email', () => {
   assert.equal(cleanEmail(' Ivan@Mail.RU '), 'ivan@mail.ru')
   assert.equal(cleanEmail('ivan@'), null)
   assert.equal(cleanEmail('ivan mail@x.ru'), null)
+})
+
+// ── защита от перебора кода ──
+test('адрес клиента: берём то, что дописал nginx (последний), а не подделанное слева', () => {
+  assert.equal(clientIp({ headers: { 'x-forwarded-for': '6.6.6.6, 1.1.1.1, 203.0.113.7' } }), '203.0.113.7')
+  assert.equal(clientIp({ headers: { 'x-forwarded-for': '203.0.113.7' } }), '203.0.113.7')
+  assert.equal(clientIp({ headers: {}, socket: { remoteAddress: '10.0.0.5' } }), '10.0.0.5')
+})
+
+test('лимит попыток: после порога блокирует, потом окно проходит; адреса независимы', () => {
+  const t0 = 1_000_000
+  for (let i = 1; i <= 5; i++) assert.equal(tooMany('k1', { limit: 5, windowMs: 60_000 }, t0 + i), false)
+  assert.equal(tooMany('k1', { limit: 5, windowMs: 60_000 }, t0 + 10), true)
+  assert.equal(tooMany('k2', { limit: 5, windowMs: 60_000 }, t0 + 10), false)
+  assert.equal(tooMany('k1', { limit: 5, windowMs: 60_000 }, t0 + 70_000), false)
 })

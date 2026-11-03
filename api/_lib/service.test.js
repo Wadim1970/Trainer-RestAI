@@ -1,6 +1,7 @@
 // node --test api/_lib/service.test.js — вход по коду, сессии, ответы, коды-приглашения (поддельная БД).
 process.env.SUPABASE_URL ||= 'http://localhost'
 process.env.SUPABASE_SERVICE_KEY ||= 'test'
+process.env.TRAINER_PUBLIC_URL = 'https://trainer.example.com/'
 
 import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
@@ -132,6 +133,7 @@ test('сессия: вопросы выданы, сохранены на сер�
   assert.ok(s.questions.length >= 5)
   assert.ok(s.questions.every((q) => q.level === 1 && q.answer.length >= 1))
   assert.equal(t.trn_sessions.length, 1)
+  assert.deepEqual(s.scoring.points, { correct_confident: 2, correct_unsure: 1, wrong_confident: -2, wrong_unsure: 0 })
 
   const r = await svc.submitAnswers(member, { sessionId: s.sessionId, answers: correct(s) })
   assert.equal(r.totals.correct, s.questions.length)
@@ -240,7 +242,10 @@ test('администратор: выдача, список, отзыв код�
   const made = await inv.createInvites(R, { count: 3, days: 7, note: 'Смена А', actor: 'Админ' })
   assert.equal(made.invites.length, 3)
   assert.equal(new Set(made.invites.map((i) => i.code)).size, 3)
-  assert.ok(made.invites.every((i) => i.state === 'ok' && i.codeFormatted.length === 9 && i.joinUrl.includes('/join?code=')))
+  assert.ok(made.invites.every((i) => i.state === 'ok' && i.codeFormatted.length === 9 && i.joinUrl === `https://trainer.example.com/join?code=${i.code}`))
+  process.env.TRAINER_PUBLIC_URL = ''
+  assert.equal((await inv.listInvites(R)).invites[0].joinUrl, null, 'без публичного адреса ссылки нет')
+  process.env.TRAINER_PUBLIC_URL = 'https://trainer.example.com/'
   assert.equal(t.trn_invites[0].expires_at, '2026-11-08T10:00:00.000Z')
 
   const code = made.invites[0].code

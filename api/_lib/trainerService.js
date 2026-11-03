@@ -22,7 +22,7 @@ async function loadContext(member) {
   const [restaurant, settingsRow, menu, facts, states, state] = await Promise.all([
     one(deps.db.from('restaurants').select('id, name, timezone').eq('id', rid).maybeSingle()),
     one(deps.db.from('trn_settings').select('value').eq('restaurant_id', rid).maybeSingle()),
-    selectAll(() => deps.db.from('menu_items').select('id, dish_name, menu_section, section_order, product_type, is_hidden, course_role').eq('restaurant_id', rid)),
+    selectAll(() => deps.db.from('menu_items').select('id, dish_name, menu_section, section_order, product_type, is_hidden, course_role, description').eq('restaurant_id', rid)),
     selectAll(() => deps.db.from('trn_dish_facts').select('dish_id, fact_type, status, value').eq('restaurant_id', rid).eq('fact_type', 'ingredients').eq('status', 'confirmed')),
     selectAll(() => deps.db.from('trn_card_states').select('*').eq('member_id', member.id)),
     one(deps.db.from('trn_member_state').select('*').eq('member_id', member.id).maybeSingle()),
@@ -90,7 +90,8 @@ export async function createSession(member) {
 
   // Названия блюд для подписи результатов (по карточкам).
   const dishNames = Object.fromEntries(ctx.dishes.map((d) => [d.id, d.name]))
-  return { sessionId: session.id, kind: plan.kind, total: questions.length, questions, dishNames }
+  const { points, combo_step, combo_max } = ctx.settings
+  return { sessionId: session.id, kind: plan.kind, total: questions.length, questions, dishNames, scoring: { points, combo_step, combo_max } }
 }
 
 // ── Приём ответов ──

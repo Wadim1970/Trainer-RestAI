@@ -31,7 +31,13 @@ export function bodyOf(req) {
   return req.body && typeof req.body === 'object' ? req.body : {}
 }
 
-export const clientIp = (req) => String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim()
+// Адрес клиента для лимита попыток. Берём ПОСЛЕДНИЙ адрес из X-Forwarded-For: его дописывает
+// наш nginx ($proxy_add_x_forwarded_for), а всё, что левее, клиент может подделать — иначе
+// лимит обходился бы заголовком, и код приглашения можно было бы перебирать.
+export function clientIp(req) {
+  const parts = String(req.headers['x-forwarded-for'] || '').split(',').map((s) => s.trim()).filter(Boolean)
+  return parts.at(-1) || req.socket?.remoteAddress || ''
+}
 
 // Лимит попыток с одного адреса за окно (в памяти процесса). true — слишком много.
 const buckets = new Map()

@@ -5,7 +5,12 @@ import { httpError } from './http.js'
 import { generateCode, formatCode, inviteState, DEFAULT_INVITE_DAYS, MAX_INVITES_PER_REQUEST } from './inviteCore.js'
 import { totalPoints, visibleStreak, dayIn, DEFAULT_TZ } from './progressCore.js'
 
-export const joinUrl = (code) => `${String(process.env.TRAINER_PUBLIC_URL || '').replace(/\/$/, '')}/join?code=${code}`
+// Ссылка для QR. Без TRAINER_PUBLIC_URL ссылки нет: относительный адрес в QR никуда не ведёт,
+// поэтому админка в этом случае показывает только код и предупреждение.
+export function joinUrl(code) {
+  const base = String(process.env.TRAINER_PUBLIC_URL || '').trim().replace(/\/$/, '')
+  return /^https?:\/\//.test(base) ? `${base}/join?code=${code}` : null
+}
 
 const cleanNote = (v) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, 120) || null
 
