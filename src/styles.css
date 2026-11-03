@@ -42,6 +42,9 @@ h1 { font-size: 20px; } h2 { font-size: 18px; } h3 { font-size: 16px; }
 .btn { min-height: 52px; padding: 0 20px; border: 0; border-radius: 14px; font-size: 16px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; color: var(--text); background: var(--surface-2); }
 .btn.primary { background: var(--accent); color: var(--accent-text); }
 .btn.big { min-height: 58px; font-size: 18px; }
+.btn.secondary { background: transparent; color: var(--text, inherit); border: 2px solid var(--line); }
+.or { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 14px; }
+.or::before, .or::after { content: ''; flex: 1; height: 1px; background: currentColor; opacity: 0.35; }
 .btn.link { background: transparent; color: var(--muted); min-height: 44px; font-weight: 500; }
 .btn.small { min-height: 36px; padding: 0 8px; font-size: 14px; }
 .btn:disabled { opacity: 0.45; cursor: default; }

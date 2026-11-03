@@ -1,4 +1,4 @@
-// node --test api/_lib/service.test.js — вход по коду, сессии, ответы, коды-приглашения (поддельная БД).
+// node --test api/_lib/service.test.js — вход по списку доступа, сессии, ответы, администратор (поддельная БД).
 process.env.SUPABASE_URL ||= 'http://localhost'
 process.env.SUPABASE_SERVICE_KEY ||= 'test'
 process.env.TRAINER_PUBLIC_URL = 'https://trainer.example.com/'
@@ -11,7 +11,7 @@ import { seeded } from './distractorCore.js'
 const { deps } = await import('./db.js')
 const auth = await import('./authService.js')
 const svc = await import('./trainerService.js')
-const inv = await import('./invitesService.js')
+const enr = await import('./enrollmentsService.js')
 const { assertAdmin } = await import('./adminAuth.js')
 
 const R = 'dd89773c-0952-4fd1-9510-514094a928ee'
@@ -22,7 +22,7 @@ const dish = (id, name, section, extra = {}) => ({ id, restaurant_id: R, dish_na
 const ing = (...names) => ({ items: names.map((n, i) => ({ name: n, is_key: i < 3 })) })
 const fact = (dish_id, value) => ({ restaurant_id: R, dish_id, fact_type: 'ingredients', status: 'confirmed', value })
 
-const USERS = { 'tok-ivan': { id: 'u-ivan', email: 'ivan@mail.ru' }, 'tok-anna': { id: 'u-anna', email: 'anna@mail.ru' } }
+const USERS = { 'tok-ivan': { id: 'u-ivan', email: 'ivan@mail.ru' }, 'tok-anna': { id: 'u-anna', email: 'anna@mail.ru' }, 'tok-caps': { id: 'u-caps', email: 'Pavel@Mail.RU' } }
 const req = (token, extra = {}) => ({ headers: token ? { authorization: `Bearer ${token}` } : {}, ...extra })
 
 let t
@@ -40,76 +40,104 @@ beforeEach(() => {
       fact('a1', ing('Курица', 'Пармезан', 'Романо', 'Соус цезарь')), fact('a2', ing('Огурцы', 'Томаты', 'Фета', 'Маслины')),
       fact('a3', ing('Картофель', 'Горошек', 'Колбаса', 'Майонез')), fact('s1', ing('Свёкла', 'Говядина', 'Капуста', 'Сметана')),
     ],
-    trn_invites: [], trn_members: [], trn_settings: [], trn_sessions: [], trn_attempts: [], trn_card_states: [], trn_member_state: [],
+    trn_enrollments: [], trn_invites: [], trn_members: [], trn_settings: [], trn_sessions: [], trn_attempts: [], trn_card_states: [], trn_member_state: [],
   })
   t = deps.db.tables
 })
 
 const err = (p) => p.then(() => assert.fail('ожидалась ошибка'), (e) => e)
-const invite = (code, extra = {}) => ({ id: `i-${code}`, restaurant_id: R, code, kind: 'training', created_at: NOW.toISOString(), expires_at: '2026-11-08T10:00:00Z', used_at: null, revoked_at: null, ...extra })
+const enrollment = (email, extra = {}) => ({ id: `e-${email}`, restaurant_id: R, email, name: null, status: 'invited', created_at: NOW.toISOString(), first_login_at: null, closed_at: null, ...extra })
 
-async function registered(token = 'tok-ivan', code = 'K7M2QX9P') {
-  t.trn_invites.push(invite(code))
-  await auth.redeemInvite(USERS[token], { code, name: 'Иван' })
+// Официант внесён в список и вошёл (первый вход создаёт участника).
+async function registered(token = 'tok-ivan', name = 'Иван') {
+  t.trn_enrollments.push(enrollment(USERS[token].email.toLowerCase(), { name }))
   return (await auth.authenticateMember(req(token))).member
 }
 
-// ── вход и регистрация ──
-test('проверка кода: действителен / не тот формат / нет / использован / истёк / отозван', async () => {
-  t.trn_invites.push(invite('K7M2QX9P'), invite('USEDUSED', { used_at: NOW.toISOString() }), invite('EXPRD222', { expires_at: '2026-10-01T00:00:00Z' }), invite('RVKD2222', { revoked_at: NOW.toISOString() }))
-  const ok = await auth.checkInvite('k7m2-qx9p')
-  assert.deepEqual(ok.restaurant, { id: R, name: 'Сыроварня' })
-  assert.equal((await err(auth.checkInvite('123'))).status, 400)
-  assert.equal((await err(auth.checkInvite('AAAAAAAA'))).status, 404)
-  for (const c of ['USEDUSED', 'EXPRD222', 'RVKD2222']) assert.equal((await err(auth.checkInvite(c))).status, 410)
-  assert.equal(t.trn_invites.find((i) => i.code === 'K7M2QX9P').used_at, null, 'проверка ничего не расходует')
-})
-
-test('регистрация по коду: участник создан, код погашен, повторно использовать нельзя', async () => {
-  t.trn_invites.push(invite('K7M2QX9P'))
-  const r = await auth.redeemInvite(USERS['tok-ivan'], { code: 'K7M2-QX9P', name: '  Иван  Петров ' })
-  assert.equal(r.member.name, 'Иван Петров')
+// ── вход по списку доступа ──
+test('первый вход: участник создан из записи списка, курс идёт (active), имя из списка', async () => {
+  t.trn_enrollments.push(enrollment('ivan@mail.ru', { name: 'Иван Петров' }))
+  const { member } = await auth.authenticateMember(req('tok-ivan'))
+  assert.deepEqual([member.name, member.restaurant_id, member.email], ['Иван Петров', R, 'ivan@mail.ru'])
   assert.equal(t.trn_members.length, 1)
-  assert.equal(t.trn_members[0].restaurant_id, R)
-  assert.equal(t.trn_members[0].email, 'ivan@mail.ru')
-  const used = t.trn_invites[0]
-  assert.ok(used.used_at)
-  assert.equal(used.used_by, t.trn_members[0].id)
-  // тот же код другим человеком
-  assert.equal((await err(auth.redeemInvite(USERS['tok-anna'], { code: 'K7M2QX9P', name: 'Анна' }))).status, 410)
-  // тот же человек второй раз
-  t.trn_invites.push(invite('NEWKEY22'))
-  assert.equal((await err(auth.redeemInvite(USERS['tok-ivan'], { code: 'NEWKEY22', name: 'Иван' }))).status, 409)
-  assert.equal(t.trn_invites.find((i) => i.code === 'NEWKEY22').used_at, null, 'второй код не расходуется')
+  const e = t.trn_enrollments[0]
+  assert.deepEqual([e.status, e.member_id, e.first_login_at], ['active', member.id, NOW.toISOString()])
+  // повторный вход ничего не плодит и не сдвигает дату первого входа
+  deps.now = () => new Date('2026-11-02T10:00:00Z')
+  await auth.authenticateMember(req('tok-ivan'))
+  assert.equal(t.trn_members.length, 1)
+  assert.equal(t.trn_enrollments[0].first_login_at, NOW.toISOString())
 })
 
-test('регистрация: просроченный/отозванный код и пустое имя отклоняются', async () => {
-  t.trn_invites.push(invite('EXPRD222', { expires_at: '2026-10-01T00:00:00Z' }), invite('RVKD2222', { revoked_at: NOW.toISOString() }), invite('K7M2QX9P'))
-  assert.equal((await err(auth.redeemInvite(USERS['tok-ivan'], { code: 'EXPRD222', name: 'Иван' }))).status, 410)
-  assert.equal((await err(auth.redeemInvite(USERS['tok-ivan'], { code: 'RVKD2222', name: 'Иван' }))).status, 410)
-  assert.equal((await err(auth.redeemInvite(USERS['tok-ivan'], { code: 'K7M2QX9P', name: '   ' }))).status, 400)
-  assert.equal((await err(auth.redeemInvite({ id: 'u-x', email: '' }, { code: 'K7M2QX9P', name: 'Иван' }))).status, 400)
+test('имя не указано в списке — берётся из почты; регистр почты не важен', async () => {
+  t.trn_enrollments.push(enrollment('pavel@mail.ru'))
+  const { member } = await auth.authenticateMember(req('tok-caps'))
+  assert.equal(member.name, 'Pavel')
+  assert.equal(member.email, 'pavel@mail.ru')
+})
+
+test('почты нет в списке — вход закрыт, участник не создаётся', async () => {
+  const e = await err(auth.authenticateMember(req('tok-anna')))
+  assert.equal(e.status, 403)
+  assert.match(e.message, /нет в списке/)
   assert.equal(t.trn_members.length, 0)
 })
 
-test('если участника создать не удалось — код возвращается', async () => {
-  t.trn_invites.push(invite('K7M2QX9P'))
-  const realFrom = deps.db.from.bind(deps.db)
-  deps.db.from = (name) => (name === 'trn_members'
-    ? { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }), insert: () => ({ select: () => ({ single: async () => ({ data: null, error: { code: 'XX000', message: 'boom' } }) }) }) }
-    : realFrom(name))
-  await err(auth.redeemInvite(USERS['tok-ivan'], { code: 'K7M2QX9P', name: 'Иван' }))
-  assert.equal(t.trn_invites[0].used_at, null)
+test('доступ закрыт администратором — «доступ закончился», прогресс сохранён, повторный доступ работает', async () => {
+  const member = await registered()
+  await enr.closeEnrollment(R, t.trn_enrollments[0].id)
+  const e = await err(auth.authenticateMember(req('tok-ivan')))
+  assert.equal(e.status, 403)
+  assert.match(e.message, /Доступ к курсу закончился/)
+  assert.equal(t.trn_members.length, 1, 'участник и его прогресс остаются')
+  // администратор открывает доступ снова: новая запись, тот же участник
+  await enr.addEnrollments(R, { emails: 'ivan@mail.ru Иван', actor: 'Админ' })
+  const again = await auth.authenticateMember(req('tok-ivan'))
+  assert.equal(again.member.id, member.id)
+  assert.equal(t.trn_members.length, 1)
 })
 
-test('авторизация запросов: нет токена / неизвестный токен / не участник / участник', async () => {
+test('почта занята в другом ресторане — вход закрыт', async () => {
+  const member = await registered()
+  t.trn_enrollments[0].status = 'closed'; t.trn_enrollments[0].closed_at = NOW.toISOString()
+  t.trn_enrollments.push(enrollment('ivan@mail.ru', { restaurant_id: R2, id: 'e-other' }))
+  const e = await err(auth.authenticateMember(req('tok-ivan')))
+  assert.equal(e.status, 403)
+  assert.match(e.message, /другому ресторану/)
+  assert.equal(t.trn_members.find((m) => m.id === member.id).restaurant_id, R)
+})
+
+test('два запроса при первом входе: участник один', async () => {
+  t.trn_enrollments.push(enrollment('ivan@mail.ru', { name: 'Иван' }))
+  const realFrom = deps.db.from.bind(deps.db)
+  deps.db.from = (name) => {
+    const q = realFrom(name)
+    if (name === 'trn_members') {
+      q.insert = (row) => ({ select: () => ({ single: async () => { t.trn_members.push({ id: 'm-race', ...row }); return { data: null, error: { code: '23505', message: 'duplicate' } } } }) })
+    }
+    return q
+  }
+  const { member } = await auth.authenticateMember(req('tok-ivan'))
+  assert.equal(member.id, 'm-race')
+  assert.equal(t.trn_members.length, 1)
+  assert.equal(t.trn_enrollments[0].status, 'active')
+})
+
+test('прочие ошибки базы при создании участника не глотаются', async () => {
+  t.trn_enrollments.push(enrollment('ivan@mail.ru'))
+  const realFrom = deps.db.from.bind(deps.db)
+  deps.db.from = (name) => {
+    const q = realFrom(name)
+    if (name === 'trn_members') q.insert = () => ({ select: () => ({ single: async () => ({ data: null, error: { code: 'XX000', message: 'boom' } }) }) })
+    return q
+  }
+  assert.equal((await err(auth.authenticateMember(req('tok-ivan')))).message, 'boom')
+  assert.equal(t.trn_enrollments[0].status, 'invited', 'доступ не «запущен», если участник не создан')
+})
+
+test('авторизация запросов: нет токена / неизвестный токен', async () => {
   assert.equal((await err(auth.authenticateMember(req(null)))).status, 401)
   assert.equal((await err(auth.authenticateMember(req('tok-nobody')))).status, 401)
-  const e = await err(auth.authenticateMember(req('tok-anna')))
-  assert.equal(e.status, 403)
-  assert.match(e.message, /код-приглашение/)
-  const member = await registered()
-  assert.equal(member.restaurant_id, R)
 })
 
 // ── главный экран ──
@@ -238,44 +266,60 @@ test('данные других ресторанов не видны', async () 
 })
 
 // ── администратор ──
-test('администратор: выдача, список, отзыв кодов; использованный отозвать нельзя', async () => {
-  const made = await inv.createInvites(R, { count: 3, days: 7, note: 'Смена А', actor: 'Админ' })
-  assert.equal(made.invites.length, 3)
-  assert.equal(new Set(made.invites.map((i) => i.code)).size, 3)
-  assert.ok(made.invites.every((i) => i.state === 'ok' && i.codeFormatted.length === 9 && i.joinUrl === `https://trainer.example.com/join?code=${i.code}`))
-  process.env.TRAINER_PUBLIC_URL = ''
-  assert.equal((await inv.listInvites(R)).invites[0].joinUrl, null, 'без публичного адреса ссылки нет')
-  process.env.TRAINER_PUBLIC_URL = 'https://trainer.example.com/'
-  assert.equal(t.trn_invites[0].expires_at, '2026-11-08T10:00:00.000Z')
-
-  const code = made.invites[0].code
-  await auth.redeemInvite(USERS['tok-ivan'], { code, name: 'Иван' })
-  const list = await inv.listInvites(R)
-  assert.equal(list.invites.find((i) => i.code === code).state, 'used')
-  assert.equal(list.invites.find((i) => i.code === code).usedBy, 'Иван')
-
-  assert.equal((await err(inv.revokeInvite(R, made.invites[0].id))).status, 404)
-  await inv.revokeInvite(R, made.invites[1].id)
-  assert.equal((await inv.listInvites(R)).invites.find((i) => i.id === made.invites[1].id).state, 'revoked')
-
-  assert.equal((await err(inv.createInvites(R, { count: 0 }))).status, 400)
-  assert.equal((await err(inv.createInvites(R, { count: 'abc' }))).status, 400)
-  assert.equal((await err(inv.createInvites(R, { count: 1, days: 0 }))).status, 400)
-  assert.equal((await err(inv.createInvites(R, { count: 101 }))).status, 400)
-  assert.equal((await err(inv.createInvites(R, { count: 1, days: 400 }))).status, 400)
-  assert.equal((await err(inv.createInvites('99999999-9999-9999-9999-999999999999', { count: 1 }))).status, 404)
+const ensured = []
+beforeEach(() => {
+  ensured.length = 0
+  deps.authAdmin.ensureUser = async ({ email }) => { ensured.push(email); return { id: `u-${email}`, created: true } }
 })
 
-test('администратор: список официантов с прогрессом; чужие рестораны закрыты', async () => {
+test('администратор: внести email списком — добавлены, повторы, неверные, чужой ресторан', async () => {
+  t.trn_enrollments.push(enrollment('busy@mail.ru', { restaurant_id: R2, id: 'e-busy' }), enrollment('ivan@mail.ru', { id: 'e-ivan' }))
+  const r = await enr.addEnrollments(R, { emails: 'Anna@Mail.ru Анна Смирнова\nivan@mail.ru\nbusy@mail.ru\nне-почта\nanna@mail.ru', actor: ' Админ ' })
+  assert.deepEqual(r.results.map((x) => [x.email, x.status]), [
+    ['anna@mail.ru', 'added'], ['ivan@mail.ru', 'exists'], ['busy@mail.ru', 'other_restaurant'], [null, 'invalid'],
+  ])
+  assert.equal(r.added, 1)
+  const created = t.trn_enrollments.find((e) => e.email === 'anna@mail.ru')
+  assert.deepEqual([created.name, created.status, created.restaurant_id, created.created_by], ['Анна Смирнова', 'invited', R, 'Админ'])
+  assert.deepEqual(ensured, ['anna@mail.ru'], 'пользователь для входа заводится только для новой почты')
+  assert.equal((await err(enr.addEnrollments(R, { emails: '  \n ' }))).status, 400)
+  assert.equal((await err(enr.addEnrollments(R, { emails: Array.from({ length: 101 }, (_, i) => `u${i}@mail.ru`) }))).status, 400)
+  assert.equal((await err(enr.addEnrollments('99999999-9999-9999-9999-999999999999', { emails: 'a@mail.ru' }))).status, 404)
+})
+
+test('администратор: ошибка заведения пользователя — доступ не создаётся, остальные строки идут дальше', async () => {
+  deps.authAdmin.ensureUser = async ({ email }) => { if (email === 'bad@mail.ru') throw new Error('gotrue down'); return { id: 'u', created: true } }
+  const r = await enr.addEnrollments(R, { emails: 'bad@mail.ru\ngood@mail.ru' })
+  assert.deepEqual(r.results.map((x) => x.status), ['error', 'added'])
+  assert.deepEqual(t.trn_enrollments.map((e) => e.email), ['good@mail.ru'])
+})
+
+test('администратор: закрыть доступ — один раз; чужой ресторан и закрытый не закрываются', async () => {
+  t.trn_enrollments.push(enrollment('ivan@mail.ru', { id: 'e-ivan' }))
+  assert.equal((await err(enr.closeEnrollment(R2, 'e-ivan'))).status, 404)
+  await enr.closeEnrollment(R, 'e-ivan')
+  const e = t.trn_enrollments[0]
+  assert.deepEqual([e.status, e.closed_reason, e.closed_at], ['closed', 'admin', NOW.toISOString()])
+  assert.equal((await err(enr.closeEnrollment(R, 'e-ivan'))).status, 404)
+})
+
+test('администратор: список доступов с прогрессом; открытые выше закрытых; демо и чужие рестораны не видны; доступ к кабинету', async () => {
   const member = await registered()
   const s = await svc.createSession(member)
   await svc.submitAnswers(member, { sessionId: s.sessionId, answers: correct(s) })
-  const { members } = await inv.listMembers(R)
-  assert.equal(members.length, 1)
-  assert.equal(members[0].name, 'Иван')
-  assert.ok(members[0].points > 0)
-  assert.equal(members[0].streak, 1)
-  assert.deepEqual((await inv.listMembers(R2)).members, [])
+  t.trn_enrollments.push(
+    enrollment('old@mail.ru', { id: 'e-old', status: 'closed', closed_at: NOW.toISOString(), created_at: '2026-11-02T00:00:00Z' }),
+    enrollment('new@mail.ru', { id: 'e-new', created_at: '2026-10-01T00:00:00Z' }),
+    enrollment('demo-abc@demo.restai.pro', { id: 'e-demo' }),
+    enrollment('other@mail.ru', { id: 'e-r2', restaurant_id: R2 }),
+  )
+  const { enrollments, counts } = await enr.listEnrollments(R)
+  assert.deepEqual(enrollments.map((e) => [e.email, e.status]), [['ivan@mail.ru', 'active'], ['new@mail.ru', 'invited'], ['old@mail.ru', 'closed']])
+  assert.deepEqual(counts, { open: 2, closed: 1 })
+  assert.ok(enrollments[0].points > 0)
+  assert.equal(enrollments[0].streak, 1)
+  assert.equal(enrollments[1].points, 0)
+  assert.deepEqual((await enr.listEnrollments(R2)).enrollments.map((e) => e.email), ['other@mail.ru'])
 
   delete process.env.ADMIN_TOKEN
   assert.equal(assertAdmin({ headers: {} }, R), R) // учебный ресторан открыт (тестовый режим)

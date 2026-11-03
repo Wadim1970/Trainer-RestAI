@@ -12,7 +12,8 @@ interface AuthState {
   hasSession: boolean
   me: Me | null
   stale: boolean // показаны сохранённые данные: нет связи
-  noAccess: boolean // вошли по email, но не зарегистрированы в тренажёре
+  noAccess: boolean // вошли по email, но доступа нет: почты нет в списке или доступ закрыт
+  noAccessMessage: string // причина — текст от сервера
   error: string
   refresh: () => Promise<void>
   signOut: () => Promise<void>
@@ -30,12 +31,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<Me | null>(null)
   const [stale, setStale] = useState(false)
   const [noAccess, setNoAccess] = useState(false)
+  const [noAccessMessage, setNoAccessMessage] = useState('')
   const [error, setError] = useState('')
 
   const signOut = useCallback(async () => {
     try { localStorage.removeItem(ME_CACHE) } catch { /* ignore */ }
     setMe(null)
     setNoAccess(false)
+    setNoAccessMessage('')
     await supabase?.auth.signOut()
     setHasSession(false)
   }, [])
@@ -46,10 +49,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setMe(data)
       setStale(false)
       setNoAccess(false)
+      setNoAccessMessage('')
       setError('')
       try { localStorage.setItem(ME_CACHE, JSON.stringify(data)) } catch { /* ignore */ }
     } catch (e) {
-      if (e instanceof ApiError && e.status === 403) { setNoAccess(true); setMe(null) }
+      if (e instanceof ApiError && e.status === 403) { setNoAccess(true); setNoAccessMessage(e.message); setMe(null) }
       else if (e instanceof ApiError && e.status === 401) await signOut()
       else if (e instanceof NetworkError) {
         const cached = readCache()
@@ -84,7 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => { alive = false; window.removeEventListener('online', onOnline) }
   }, [hasSession, refresh])
 
-  const value = useMemo(() => ({ ready, hasSession, me, stale, noAccess, error, refresh, signOut }), [ready, hasSession, me, stale, noAccess, error, refresh, signOut])
+  const value = useMemo(() => ({ ready, hasSession, me, stale, noAccess, noAccessMessage, error, refresh, signOut }), [ready, hasSession, me, stale, noAccess, noAccessMessage, error, refresh, signOut])
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 

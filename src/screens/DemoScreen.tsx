@@ -6,6 +6,9 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { t } from '../i18n'
 
+// Демо-код — четыре цифры: на четвёртой вход срабатывает сам, кнопку нажимать не нужно.
+const AUTO_LENGTH = 4
+
 interface DemoSession { access_token: string; refresh_token: string }
 
 // Демо-вход для показа: код → настоящая сессия демо-официанта учебного ресторана (без почты).
@@ -16,12 +19,12 @@ export default function DemoScreen() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
-  const enter = async () => {
+  const enter = async (value = code) => {
     if (!supabase || busy) return
     setBusy(true)
     setError('')
     try {
-      const s = await api<DemoSession>('/api/demo-login', { body: { code }, auth: false })
+      const s = await api<DemoSession>('/api/demo-login', { body: { code: value }, auth: false })
       const { error: e } = await supabase.auth.setSession({ access_token: s.access_token, refresh_token: s.refresh_token })
       if (e) throw new Error(t('errGeneric'))
       await refresh()
@@ -38,7 +41,7 @@ export default function DemoScreen() {
         <p className="muted">{t('demoIntro')}</p>
         <label className="field">
           <span>{t('demoCodeLabel')}</span>
-          <input className="input otp" inputMode="numeric" autoComplete="off" pattern="[0-9]*" maxLength={12} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} autoFocus />
+          <input className="input otp" inputMode="numeric" autoComplete="off" pattern="[0-9]*" maxLength={12} value={code} onChange={(e) => { const v = e.target.value.replace(/\D/g, ''); setCode(v); if (v.length === AUTO_LENGTH) void enter(v) }} autoFocus />
         </label>
         {error && <Notice kind="error">{error}</Notice>}
         <button className="btn primary" type="submit" disabled={busy || code.length < 3}>{t('demoEnter')}</button>

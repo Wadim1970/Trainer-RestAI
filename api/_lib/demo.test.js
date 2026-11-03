@@ -9,7 +9,8 @@ import { fakeDb } from './testing/fakeDb.js'
 const { deps } = await import('./db.js')
 const demo = await import('./demoService.js')
 const svc = await import('./trainerService.js')
-const inv = await import('./invitesService.js')
+const enr = await import('./enrollmentsService.js')
+const auth = await import('./authService.js')
 
 const R = demo.DEMO_RESTAURANT_ID
 const NOW = new Date('2026-11-05T10:00:00Z')
@@ -32,7 +33,7 @@ beforeEach(() => {
   }
   deps.db = fakeDb({
     restaurants: [{ id: R, name: 'Сыроварня', timezone: 'Europe/Moscow' }],
-    menu_items: [], trn_dish_facts: [], trn_invites: [], trn_settings: [], trn_sessions: [], trn_attempts: [], trn_card_states: [], trn_member_state: [],
+    menu_items: [], trn_dish_facts: [], trn_enrollments: [{ id: 'e-1', restaurant_id: R, email: 'ivan@mail.ru', name: 'Иван', status: 'active', member_id: 'real-1', created_at: '2026-10-01T00:00:00Z' }], trn_invites: [], trn_settings: [], trn_sessions: [], trn_attempts: [], trn_card_states: [], trn_member_state: [],
     trn_members: [
       { id: 'real-1', auth_user_id: 'u-real', restaurant_id: R, name: 'Иван', email: 'ivan@mail.ru', created_at: '2026-10-01T00:00:00Z' },
     ],
@@ -116,8 +117,21 @@ test('главный экран знает, что это демо; у наст�
 
 test('в списке официантов админки демо-аккаунтов нет', async () => {
   await demo.demoLogin('1111')
-  const { members } = await inv.listMembers(R)
-  assert.deepEqual(members.map((m) => m.name), ['Иван'])
+  t.trn_enrollments.push({ id: 'e-2', restaurant_id: R, email: 'demo-zzz@demo.restai.pro', name: null, status: 'invited', created_at: '2026-10-02T00:00:00Z' })
+  const { enrollments } = await enr.listEnrollments(R)
+  assert.deepEqual(enrollments.map((e) => e.name), ['Иван'])
+})
+
+test('демо-официант входит без записи в списке доступа; «чужой» демо-адрес без участника — нет', async () => {
+  const sess = await demo.demoLogin('1111')
+  const email = sess.access_token.replace(/^at-/, '')
+  const user = { id: created.at(-1).id, email }
+  deps.getUser = async () => user
+  const { member } = await auth.authenticateMember({ headers: { authorization: 'Bearer x' } })
+  assert.equal(member.email, email)
+  assert.equal(t.trn_enrollments.length, 1, 'для демо записи доступа не создаются')
+  deps.getUser = async () => ({ id: 'u-fake', email: 'demo-fake@demo.restai.pro' })
+  assert.equal((await err(auth.authenticateMember({ headers: { authorization: 'Bearer x' } }))).status, 403)
 })
 
 test('isDemoEmail: только наш демо-домен', () => {
